@@ -126,7 +126,7 @@ describe('the scan driver', () => {
     s.destroy();
   });
 
-  it('stops with `budget-exhausted` when the ping budget runs out first', () => {
+  it('stops with `budget-exhausted` when the per-sweep budget runs out first', () => {
     const s = session();
     const driver = new ScanDriver(hz, {
       ...DEFAULT_SCAN_DRIVER_CONFIG,
@@ -145,6 +145,39 @@ describe('the scan driver', () => {
     }
     expect(outcome.done).toBe(true);
     if (outcome.done) expect(outcome.interpretation).toBe('budget-exhausted');
+    s.destroy();
+  });
+
+  it('enforces a SESSION ping budget that sweep boundaries do not reset', () => {
+    // horizon's `maxIterations` is per TURN — `turnBoundary()` resets the
+    // counter, which is right for an agent and only half of what a scan needs.
+    // A demo ran 480 pings against a 400-ping `maxIterations` because each sweep
+    // started the count over; the battery is not so forgiving.
+    const s = session();
+    const driver = new ScanDriver(hz, {
+      ...DEFAULT_SCAN_DRIVER_CONFIG,
+      maxIterations: 1000, // effectively no per-sweep limit
+      noProgressLimit: 999,
+      maxTotalPings: 20,
+    });
+    const room = emptyRoom('box', 4, 5, 3);
+    const pings = simulateScan(core, room, horizontalSweep(12), { seed: 21 });
+
+    let outcome = { done: false } as ReturnType<ScanDriver['beforeSweep']>;
+    let total = 0;
+    for (let sweep = 0; sweep < 5 && !outcome.done; sweep++) {
+      driver.sweepBoundary(); // resets horizon's counters, NOT the session budget
+      for (const p of pings) {
+        driver.observe(s, s.pingWithBeam(p.samples, p.pose.beam));
+        total++;
+        outcome = driver.beforeSweep();
+        if (outcome.done) break;
+      }
+    }
+    expect(outcome.done).toBe(true);
+    if (outcome.done) expect(outcome.interpretation).toBe('budget-exhausted');
+    expect(total).toBeGreaterThanOrEqual(20);
+    expect(total).toBeLessThan(30);
     s.destroy();
   });
 

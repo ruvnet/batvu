@@ -11,7 +11,7 @@
 // | axis         | for BatVu                                    | why THIS and not the obvious choice |
 // |--------------|----------------------------------------------|-------------------------------------|
 // | `primary`    | half free-space IoU, half dilated occupied recall | see below — plain occupied IoU is gameable |
-// | `noopRate`   | mean fraction of the surfaces actually in the beam that a ping failed to report | see below — twice |
+// | `noopRate`   | fraction of the mapped volume the scan left UNCOMMITTED | see below — got this wrong twice |
 // | `costPerWin` | milliseconds of compute per IoU point         | keeps the wheel from buying quality with a phone that gets hot |
 // | `regressed`  | emission guard denies, or the map carves through a wall | two hard stops, neither negotiable |
 //
@@ -47,33 +47,41 @@
 // chose lets a candidate lower the bar and be graded against the lower bar. The
 // measuring stick has to sit outside the thing being measured.
 //
-// ## `noopRate` is the one that is easy to get backwards
+// ## `noopRate` took three attempts, and the wrong two are instructive
 //
-// The obvious reading is "fraction of pings with no detections", and it is
-// wrong. Pointing at an open doorway SHOULD return nothing, and that silence is
-// the strongest evidence in the whole system — it is what carves free space.
-// Rewarding the wheel for reducing silence would drive it straight to a
-// trigger-happy detector that fills every empty room with ghosts.
+// The flywheel's definition is "non-committal / empty / no-op outputs — the
+// 'never end empty' signal", and its gate demands a STRICT improvement, because
+// "a policy earns a promotion by making the executor COMMIT more, not just score
+// higher". Getting the projection right means asking what "committing" is for a
+// sonar.
 //
-// So `noopRate` here is a MISS rate: how much of what the room actually put in
-// the beam the detector failed to report, plus the pings the capture path
-// ruined. Lower really is better, and it cannot be gamed by lowering the
-// threshold, because the ghosts that produces cost `primary` more than the
-// recovered misses gain.
+// **Attempt 1: fraction of pings with no detections.** Backwards. Pointing at an
+// open doorway SHOULD return nothing, and that silence is the strongest evidence
+// in the system — it is what carves free space. Rewarding less silence drives
+// straight to a trigger-happy detector that fills empty rooms with ghosts.
 //
-// ## ...and it has to be CONTINUOUS
+// **Attempt 2: the miss rate** — how much of what the room put in the beam the
+// detector failed to report. Sounds right, and it fights `primary` head-on.
+// Measured against the deliberately-bad root: tightening the detector improved
+// `primary` from 0.056 to 0.107 and CUT `costPerWin` by two thirds, and the gate
+// rejected it, because a stricter detector misses more. The single most useful
+// class of change was structurally unpromotable. A metric that opposes the
+// thing you are optimising is not strict, it is broken.
 //
-// The second trap is subtler and would only surface after the wheel had been
-// running for a while. `meetsPromotionRule` requires `noopRate` to improve
-// STRICTLY, so if it is a count of totally-silent pings it hits exactly 0 as
-// soon as every ping finds something — and from that generation on, nothing can
-// ever be promoted again. The lift curve flatlines and the failure looks like a
-// converged system rather than a saturated metric.
+// **Attempt 3, and the one that is actually faithful:** a miss is an ERROR, and
+// errors are already priced into `primary`. A no-op is an ABSTENTION. For a
+// scan, the output is map evidence, so the scan "ends empty" to the extent that
+// the volume it looked at is still undecided — voxels sitting near p = 0.5,
+// touched but uncommitted.
 //
-// Scoring the FRACTION of each ping's true surfaces that were missed, averaged
-// over pings, keeps the axis continuous: it approaches zero without landing on
-// it, so there is always a strictly-better score available while there is any
-// real improvement left to find.
+//     noopRate = fraction of KNOWN voxels whose |log-odds| is below the
+//                decision threshold
+//
+// Committing correctly improves both axes. Committing WRONGLY improves this one
+// and costs `primary` — which is exactly the tension the conjunctive gate is
+// for: you must commit, and you must be right. And it approaches zero
+// asymptotically rather than landing on it, so the strict clause stays
+// satisfiable while any real improvement remains.
 //
 // ## `regressed` and the false-free carve
 //
@@ -125,8 +133,11 @@ export interface EvaluationDetail extends Score {
   /** How much of what the map called occupied really was. */
   occupiedPrecision: number;
   occupiedF1: number;
-  /** Mean fraction of in-beam surfaces the detector failed to report. */
+  /** Mean fraction of in-beam surfaces the detector failed to report.
+   *  Diagnostic only — NOT scored; see the note on `noopRate`. */
   missRate: number;
+  /** Fraction of known voxels the scan left undecided — the `noopRate` input. */
+  uncommittedFraction: number;
   /** Pings that reported nothing at all — NOT a failure on its own. */
   silentPings: number;
   /** Pings whose capture path was ruined (clipped, non-finite, no blast). */
@@ -210,14 +221,14 @@ export function evaluateRoom(
       if (isBroken) broken++;
       if (result.detections.length === 0) silentPings++;
 
-      if (isBroken) {
-        missFractionSum += 1;
-      } else if (p.truthRangesM.length > 0) {
+      // Reported for diagnosis, NOT scored — see the note on attempt 2. Missing
+      // a surface is an error, and errors belong to `primary`.
+      if (p.truthRangesM.length > 0 && !isBroken) {
         const s = scoreRanges(result.detections, p.truthRangesM, toleranceM);
         missFractionSum += 1 - s.recall;
+      } else if (isBroken) {
+        missFractionSum += 1;
       }
-      // A ping with nothing in the beam contributes 0: silence is correct there,
-      // and charging for it would pay the wheel to invent ghosts in empty rooms.
 
       grid.integrate(result, {
         beam: p.pose.beam,
@@ -234,7 +245,10 @@ export function evaluateRoom(
   const map = scoreMap(grid, room, sonar.maxRangeM, occupancy.voxelM);
   const iou = map.primary;
   const falseFreeRate = map.falseFreeRate;
-  const noopRate = pings.length === 0 ? 1 : missFractionSum / pings.length;
+  // Abstention, not error: how much of the volume the scan looked at it left
+  // undecided. A ruined ping counts as a full abstention on top.
+  const brokenShare = pings.length === 0 ? 1 : broken / pings.length;
+  const noopRate = Math.min(1, map.uncommittedFraction + brokenShare);
 
   // Cost per IoU POINT, not per ping: a policy that doubles compute for a
   // rounding-error gain should look expensive, and per-ping cost would hide it.
@@ -248,11 +262,12 @@ export function evaluateRoom(
   return {
     room: room.name,
     iou,
+    uncommittedFraction: map.uncommittedFraction,
     freeIoU: map.freeIoU,
     occupiedRecall: map.occupiedRecall,
     occupiedPrecision: map.occupiedPrecision,
     occupiedF1: map.occupiedF1,
-    missRate: noopRate,
+    missRate: pings.length === 0 ? 1 : missFractionSum / pings.length,
     silentPings,
     brokenPings: broken,
     falseFreeRate,
@@ -275,6 +290,8 @@ function rangeResolutionM(sonar: SonarConfig): number {
 }
 
 interface MapScore {
+  /** Fraction of KNOWN voxels still sitting near p = 0.5 — the abstention axis. */
+  uncommittedFraction: number;
   freeIoU: number;
   occupiedRecall: number;
   occupiedPrecision: number;
@@ -310,6 +327,8 @@ function scoreMap(
   let predictedOccupied = 0;
   let solidTotal = 0;
   let solidClaimedFree = 0;
+  let known = 0;
+  let uncommitted = 0;
 
   for (let i = 0; i < grid.data.length; i++) {
     const p: Vec3 = grid.centerOf(i);
@@ -319,6 +338,13 @@ function scoreMap(
     const solid = isSolid(room, p);
     const saysOccupied = l >= OCCUPIED_LOG_ODDS;
     const saysFree = l <= FREE_LOG_ODDS;
+
+    if (l !== 0) {
+      known++;
+      // Touched but undecided: the scan looked here and came away with nothing
+      // it would stand behind.
+      if (!saysOccupied && !saysFree) uncommitted++;
+    }
 
     if (solid) {
       solidTotal++;
@@ -340,6 +366,7 @@ function scoreMap(
   const precision = predictedOccupied === 0 ? (surfaceTotal === 0 ? 1 : 0) : surfaceFound / predictedOccupied;
   const occupiedF1 = precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall);
   return {
+    uncommittedFraction: known === 0 ? 1 : uncommitted / known,
     freeIoU,
     occupiedRecall: recall,
     occupiedPrecision: precision,

@@ -315,18 +315,27 @@ export const LADDERS: Record<Lever, string[]> = {
 };
 
 /**
- * A deterministic, model-free proposer: step one rung up the lever's ladder.
+ * A deterministic, model-free proposer: step up the lever's ladder.
  *
  * No live model, so a flywheel run reproduces exactly in CI and a replay bundle
- * verifies without network access. A pure function of `(current value, lever)`,
- * not of any hidden counter — which is what makes the replay meaningful rather
- * than a recording.
+ * verifies without network access.
+ *
+ * `stride` exists because a strictly-ordered ladder can otherwise dead-end. If
+ * rung N+1 happens to be worse on this suite, the gate rejects it, the base
+ * policy does not move, and a stride-1 proposer offers the identical rejected
+ * candidate every generation from then on — the lever is stuck forever on one
+ * bad rung. Advancing the stride after a rejection lets the wheel step over it
+ * and try what is beyond.
+ *
+ * This was not hypothetical: on the stock suite, the `waveform` ladder's second
+ * rung scores WORSE than its first, and with stride 1 the waveform lever never
+ * moved for the whole run.
  */
-export function ladderStep(lever: Lever, current: string): string {
+export function ladderStep(lever: Lever, current: string, stride = 1): string {
   const ladder = LADDERS[lever];
   const at = ladder.indexOf(current);
   if (at < 0) return ladder[0]!; // off-ladder value: start the climb
-  return ladder[Math.min(at + 1, ladder.length - 1)]!;
+  return ladder[Math.min(at + Math.max(1, stride), ladder.length - 1)]!;
 }
 
 /** Human-readable summary of what a lever step changed. */

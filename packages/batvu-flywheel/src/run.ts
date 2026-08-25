@@ -4,18 +4,24 @@
 //
 // Freeze the physics. Evolve the operating policy. Promote only what proves lift.
 //
-// The engine is used UNMODIFIED, including its default gate. That is deliberate:
-// `meetsPromotionRule` is conjunctive and frozen, and its second clause — the
-// no-op rate must strictly improve — is the strictest thing in it. A domain that
-// cannot honestly satisfy that clause is a domain whose `noopRate` has been
-// mapped badly, and the temptation is to relax the gate rather than fix the
-// mapping. See `evaluator.ts` for the mapping this project defends: `noopRate`
-// is the MISS rate, so "make the executor commit more" reads, correctly, as
-// "stop dropping echoes the room actually returned".
+// The engine is used UNMODIFIED, including its default gate. That is deliberate,
+// and it was tested: `meetsPromotionRule` is conjunctive and frozen, and its
+// second clause — the no-op rate must strictly improve — is the strictest thing
+// in it. Twice during development the gate refused to promote anything, and both
+// times the honest fix was the projection, not the gate.
 //
-// One consequence worth stating plainly: once the miss rate bottoms out, nothing
-// can be promoted, and the lift curve goes flat. That is the wheel telling you
-// it has converged — not a bug to gate around.
+// The second of those is the instructive one. With `noopRate` defined as the
+// MISS rate, tightening the detector improved `primary` from 0.056 to 0.107 and
+// cut `costPerWin` by two thirds — and the gate rejected it, because a stricter
+// detector misses more. The single most useful class of change was structurally
+// unpromotable. Relaxing the gate would have hidden that; fixing the axis
+// exposed it. A miss is an ERROR and belongs to `primary`; a no-op is an
+// ABSTENTION, which for a scan means map volume left undecided. See
+// `evaluator.ts`.
+//
+// One consequence worth stating plainly: once the wheel has nothing left to
+// commit, the lift curve goes flat. That is convergence, not a bug to gate
+// around.
 
 import { BatVuCore } from '@batvu/core';
 import { anchorRooms, holdoutRooms, type Room } from '@batvu/sim';
@@ -58,11 +64,11 @@ export interface SonarFlywheelReport {
 /**
  * Run the wheel.
  *
- * The proposer is deterministic and model-free — one rung up a lever's ladder,
- * chosen purely from the current value. No network, no model call, so the whole
- * run reproduces in CI and its replay bundle verifies offline. The ladders
- * encode a physics hypothesis; the gate is what decides whether the hypothesis
- * was right on this suite.
+ * The proposer is deterministic and model-free — a step up a lever's ladder. No
+ * network, no model call, so the whole run reproduces in CI and its replay
+ * bundle verifies offline. The ladders encode a physics hypothesis; the gate is
+ * what decides whether the hypothesis held on this suite, and on the stock suite
+ * it rejects the `waveform` ladder's second rung outright.
  */
 export async function runSonarFlywheel(
   options: SonarFlywheelOptions = {},
@@ -73,12 +79,22 @@ export async function runSonarFlywheel(
   const anchor = options.anchor ?? anchorRooms();
 
   const notes: string[] = [];
+
+  // How many times each lever has been proposed without being promoted. Stateful
+  // on purpose (see `ladderStep`): a stride-1 proposer re-offers a rejected rung
+  // forever. It stays fully DETERMINISTIC — the counter advances identically in
+  // every run of the same configuration — and replay verification re-runs the
+  // GATE over sealed scores, never the proposer, so nothing about the audit
+  // trail depends on the proposer being stateless.
+  const attempts = new Map<Lever, number>();
   const result = await runFlywheelGenerations({
     rootPolicy,
     proposer: async (base, target) => {
       const lever = target as Lever;
       const current = base.policy[lever] ?? '';
-      const next = ladderStep(lever, current);
+      const stride = (attempts.get(lever) ?? 0) + 1;
+      attempts.set(lever, stride);
+      const next = ladderStep(lever, current, stride);
       const summary = describeStep(lever, current, next);
       return { value: next, summary };
     },

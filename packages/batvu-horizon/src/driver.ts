@@ -102,14 +102,33 @@ export interface ScanDriverConfig extends HaltConfig {
    * the sweep reached anywhere NEW.
    */
   coverageBuckets: number;
+  /**
+   * Ping budget for the whole SESSION, enforced here rather than by horizon.
+   *
+   * `HaltConfig.maxIterations` is a per-TURN budget: `turnBoundary()` resets the
+   * iteration counter, which is exactly right for an agent (a fresh user turn
+   * deserves a fresh budget) and only half of what a scan needs. A sweep is a
+   * turn, so `maxIterations` caps one sweep — but the thing that actually runs
+   * out during a room scan is the battery, and the battery does not reset when
+   * the user starts sweeping again.
+   *
+   * Discovered by a demo that cheerfully ran 480 pings against a 400-ping
+   * `maxIterations`, because each 48-ping sweep started the count over.
+   */
+  maxTotalPings: number;
 }
 
 export const DEFAULT_SCAN_DRIVER_CONFIG: ScanDriverConfig = {
   ...DEFAULT_HALT_CONFIG,
-  maxIterations: 400,
+  // Per SWEEP. A sweep that has taken 120 pings without the turn ending is a
+  // user waving the phone about rather than scanning.
+  maxIterations: 120,
   noProgressLimit: 3,
   repeatedFailureLimit: 4,
   coverageBuckets: 60,
+  // Per SESSION. At 15 Hz this is roughly 40 seconds of emission, which is
+  // about as long as anyone will stand still.
+  maxTotalPings: 600,
 };
 
 /** What a scan needs to resume, in horizon's continuity slots. */
@@ -180,6 +199,14 @@ export class ScanDriver {
 
   /** Consume any armed halt. Call once per sweep, before choosing where to point. */
   beforeSweep(): ScanOutcome {
+    // The session budget is checked BEFORE consuming horizon's per-turn halt, so
+    // a scan that has spent its whole allowance stops even mid-sweep — the
+    // battery does not care where in a sweep it ran out.
+    if (this.pings >= this.config.maxTotalPings) {
+      this.lastReason = 'iteration-budget';
+      this.transcript.push({ role: 'summary', text: 'halt: session ping budget spent' });
+      return { done: true, reason: 'iteration-budget', interpretation: 'budget-exhausted' };
+    }
     const d = this.halt.beforeModel();
     if (!d.halt || d.reason === null) return { done: false };
     this.lastReason = d.reason;
@@ -219,7 +246,7 @@ export class ScanDriver {
     const continuity: ScanContinuity = {
       mapSignature: state.signature,
       pingsUsed: this.pings,
-      pingBudget: this.config.maxIterations,
+      pingBudget: this.config.maxTotalPings,
       coverage: state.coverage,
       entropy: state.entropy,
       occupiedVoxels: state.occupiedVoxels,
@@ -231,7 +258,7 @@ export class ScanDriver {
       actionCount: this.pings,
       workspaceCommit: null,
       evaluationHistory: [continuity],
-      budget: { pingsUsed: this.pings, pingBudget: this.config.maxIterations },
+      budget: { pingsUsed: this.pings, pingBudget: this.config.maxTotalPings },
       pendingApprovals: [],
       archiveBranch: null,
       memoryCursor: state.signature,

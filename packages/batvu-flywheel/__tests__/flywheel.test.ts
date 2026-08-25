@@ -156,32 +156,58 @@ describe('the evaluator', () => {
     expect(bad.freeIoU).toBeLessThan(0.2);
   });
 
-  it('does not punish correct silence', () => {
+  it('does not score correct silence as failure', () => {
     // A hall with every wall beyond range returns nothing, and that is right.
-    // If `noopRate` counted silence, the wheel would be rewarded for inventing
-    // ghosts here.
+    // Scored as a miss, the wheel would be paid to invent ghosts here.
     const hall = emptyRoom('far-hall', 40, 40, 12);
     const d = evaluateRoom(core, defaultPolicy(), hall, { ...opts, now: fakeNow() });
     expect(d.silentPings).toBeGreaterThan(0); // it really is silent
-    expect(d.missRate).toBe(0); // and that costs nothing
-    expect(d.noopRate).toBe(0);
+    expect(d.missRate).toBe(0); // and silence costs nothing on the error axis
+    expect(d.brokenPings).toBe(0);
+    // The abstention axis still moves — silence carves free space, which is a
+    // commitment — so most of the touched volume is decided.
+    expect(d.noopRate).toBeLessThan(0.3);
   });
 
-  it('keeps noopRate continuous so the strict promotion clause cannot freeze', () => {
-    // `meetsPromotionRule` demands a STRICT improvement in noopRate. A count of
-    // silent pings saturates at exactly 0 and, from that generation on, nothing
-    // can ever be promoted — a flatlined lift curve that looks like convergence
-    // and is really a dead metric. A fraction-of-surfaces-missed approaches zero
-    // without landing on it while any real improvement remains.
+  it('scores noopRate as ABSTENTION, not as error', () => {
+    // The trap that made the gate reject every useful change: a stricter
+    // detector maps BETTER and misses MORE, so a miss-rate noopRate opposes
+    // `primary` and the conjunctive gate can never pass both. A miss is an
+    // error and belongs to `primary`; a no-op is undecided map volume.
     const room = livingRoom();
     const bad = evaluateRoom(core, badRootPolicy(), room, { ...opts, now: fakeNow() });
     const good = evaluateRoom(core, defaultPolicy(), room, { ...opts, now: fakeNow() });
-    expect(bad.noopRate).toBeGreaterThanOrEqual(good.noopRate);
+
+    // The tuned policy is better on the map AND commits more of what it touched.
+    // Both improving together is the whole point — under the miss-rate reading
+    // they moved in opposite directions.
+    expect(good.primary).toBeGreaterThan(bad.primary);
+    expect(good.noopRate).toBeLessThan(bad.noopRate);
+
+    // It is the undecided fraction that drives it, not a count of silent pings.
+    expect(good.noopRate).toBeCloseTo(good.uncommittedFraction, 5);
     expect(good.noopRate).toBeGreaterThan(0);
     expect(good.noopRate).toBeLessThan(1);
-    // Continuous, not a ratio of whole pings: it can improve by a hair, which is
-    // what keeps the strict clause satisfiable while any lift remains.
+    // Continuous, so it approaches zero without landing on it — which is what
+    // keeps the gate's STRICT clause satisfiable while any lift remains.
     expect(Number.isInteger(good.noopRate * good.pings)).toBe(false);
+  });
+
+  it('charges a ruined ping as a full abstention', () => {
+    // A clipped or non-finite record contributed nothing usable, whatever the
+    // rest of the map looks like.
+    const room = livingRoom();
+    const clipped = evaluateRoom(
+      core,
+      { ...defaultPolicy(), waveform: encodeLever({
+        f0: 17_500, f1: 20_500, durationS: 0.005,
+        txWindow: 'hann', tukeyAlpha: 1.0, amplitude: 0.8, rxTaper: 'rect',
+      }) },
+      room,
+      { ...opts, now: fakeNow() },
+    );
+    expect(clipped.noopRate).toBeGreaterThanOrEqual(clipped.uncommittedFraction);
+    expect(clipped.noopRate).toBeLessThanOrEqual(1);
   });
 
   it('reports a room it can actually see as low-miss', () => {
