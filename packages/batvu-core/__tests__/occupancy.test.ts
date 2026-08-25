@@ -193,6 +193,44 @@ describe('the occupancy grid', () => {
     expect(g.meanEntropy()).toBeLessThan(uncertain);
   });
 
+  it('keeps its O(1) statistics exactly in step with a full rescan', () => {
+    // The optimisation that made a ping affordable: `occupiedCount`,
+    // `knownCount` and `stateSignature` are maintained on write rather than
+    // rescanned. An incremental counter that silently drifts is worse than a
+    // slow one, so every one of them is checked against the O(n) truth after a
+    // varied sequence of updates — including the clamp boundaries, where a naive
+    // increment double-counts.
+    const g = new OccupancyGrid({ extentM: 3, voxelM: 0.15, logOddsMax: 2, logOddsMin: -2 });
+    const agree = (): void => {
+      const truth = g.recount();
+      expect(g.occupiedCount()).toBe(truth.occupied);
+      expect(g.knownCount()).toBe(truth.known);
+      expect(g.stateSignature()).toBe(truth.signature);
+    };
+    agree(); // empty
+
+    for (let i = 0; i < 30; i++) {
+      const a = (i / 30) * 2 * Math.PI - Math.PI;
+      const beam = normalize(vec3(Math.sin(a), Math.cos(a), 0.2 * Math.sin(i)));
+      g.integrate(ping(i % 3 === 0 ? [] : [{ rangeM: 1.2 + (i % 5) * 0.3 }]), { beam, ...OPTS });
+      agree();
+    }
+    // Drive everything into the clamps in both directions.
+    for (let i = 0; i < 40; i++) {
+      g.integrate(ping([{ rangeM: 2 }]), { beam: vec3(0, 1, 0), ...OPTS });
+    }
+    agree();
+    for (let i = 0; i < 60; i++) {
+      g.integrate(ping([]), { beam: vec3(0, 1, 0), ...OPTS });
+    }
+    agree();
+
+    g.reset();
+    agree();
+    expect(g.occupiedCount()).toBe(0);
+    expect(g.knownCount()).toBe(0);
+  });
+
   it('resets to a blank map', () => {
     const g = new OccupancyGrid({ extentM: 4, voxelM: 0.2 });
     g.integrate(ping([{ rangeM: 2 }]), { beam: vec3(0, 1, 0), ...OPTS });

@@ -136,6 +136,22 @@ export class OccupancyGrid {
   private readonly touch: Uint32Array;
   private pingId = 0;
 
+  // ── incrementally maintained statistics ───────────────────────────────────
+  //
+  // These were computed by scanning the whole grid, and the benchmark said that
+  // was the entire cost of a ping: 1.7M voxels x two scans per integrate (the
+  // before/after occupied counts) came to 7.8 ms out of 8.0 ms, against 1.0 ms
+  // for the DSP itself. The map was eight times more expensive than the sonar,
+  // and all of it was bookkeeping.
+  //
+  // Maintaining them on write makes every query O(1). The signature is an
+  // order-INDEPENDENT sum of per-cell hashes precisely so it can be maintained
+  // this way — subtract a cell's old contribution, add its new one — where a
+  // sequential hash would have to be recomputed from scratch every time.
+  private occupied = 0;
+  private known = 0;
+  private signatureSum = 0;
+
   constructor(config: Partial<OccupancyConfig> = {}) {
     this.config = { ...DEFAULT_OCCUPANCY_CONFIG, ...config };
     if (!(this.config.voxelM > 0)) throw new Error('batvu: voxelM must be positive');
@@ -278,7 +294,7 @@ export class OccupancyGrid {
     isOccupiedEvidence: boolean,
   ): number {
     if (!(toM > fromM) || delta === 0) return 0;
-    const { voxelM, logOddsMin, logOddsMax } = this.config;
+    const { voxelM } = this.config;
     const cosHalf = Math.cos(Math.min(Math.PI, Math.max(0, halfAngle)));
     const from2 = fromM * fromM;
     const to2 = toM * toM;
@@ -321,10 +337,7 @@ export class OccupancyGrid {
           const idx = rowBase + i;
           if (this.touch[idx]! >>> 1 === this.pingId) continue;
           this.touch[idx] = stampValue;
-          this.cells[idx] = Math.min(
-            logOddsMax,
-            Math.max(logOddsMin, this.cells[idx]! + delta),
-          );
+          this.write(idx, this.cells[idx]! + delta);
           touched++;
         }
       }
@@ -332,18 +345,55 @@ export class OccupancyGrid {
     return touched;
   }
 
+  /** O(1) — maintained on write. `recount()` re-derives it the slow way. */
   occupiedCount(): number {
-    const t = this.config.occupiedThreshold;
-    let n = 0;
-    for (let i = 0; i < this.cells.length; i++) if (this.cells[i]! >= t) n++;
-    return n;
+    return this.occupied;
   }
 
-  /** Voxels the scan has said anything about at all. */
+  /** Voxels the scan has said anything about at all. O(1). */
   knownCount(): number {
-    let n = 0;
-    for (let i = 0; i < this.cells.length; i++) if (this.cells[i]! !== 0) n++;
-    return n;
+    return this.known;
+  }
+
+  /**
+   * Recompute every statistic by full scan.
+   *
+   * Not used at runtime — it exists so the tests can assert that the O(1)
+   * incremental values still agree with the O(n) truth. An incremental counter
+   * that silently drifts is worse than a slow one, and this is the only thing
+   * standing between the two.
+   */
+  recount(): { occupied: number; known: number; signature: string } {
+    const t = this.config.occupiedThreshold;
+    let occupied = 0;
+    let known = 0;
+    let sum = 0;
+    for (let i = 0; i < this.cells.length; i++) {
+      const v = this.cells[i]!;
+      if (v >= t) occupied++;
+      if (v !== 0) known++;
+      sum = (sum + cellHash(i, v)) >>> 0;
+    }
+    return { occupied, known, signature: formatSignature(sum) };
+  }
+
+  /** Write one cell, keeping the incremental statistics in step. */
+  private write(idx: number, value: number): void {
+    const { logOddsMin, logOddsMax, occupiedThreshold } = this.config;
+    const before = this.cells[idx]!;
+    const after = Math.min(logOddsMax, Math.max(logOddsMin, value));
+    if (after === before) return;
+    this.cells[idx] = after;
+
+    if (before === 0 && after !== 0) this.known++;
+    else if (before !== 0 && after === 0) this.known--;
+
+    const wasOccupied = before >= occupiedThreshold;
+    const isOccupied = after >= occupiedThreshold;
+    if (isOccupied && !wasOccupied) this.occupied++;
+    else if (!isOccupied && wasOccupied) this.occupied--;
+
+    this.signatureSum = (this.signatureSum - cellHash(idx, before) + cellHash(idx, after)) >>> 0;
   }
 
   /** World-space centres of every occupied voxel — what the renderer draws. */
@@ -385,18 +435,15 @@ export class OccupancyGrid {
    * changes and NOT change when it does not — a signature that drifted with
    * floating-point noise would make no-progress detection impossible — so the
    * log-odds are quantised before hashing.
+   *
+   * O(1), because the sum is order-INDEPENDENT and can be maintained on write.
+   * That is weaker than a sequential hash: two different maps collide at roughly
+   * 2^-32, and a collision would read as "no progress" for one sweep. Against a
+   * full grid rescan per ping — measured at 7.1 ms — it is a trade worth making,
+   * and `recount()` lets a test prove the incremental value tracks the truth.
    */
   stateSignature(): string {
-    let h = 0x811c9dc5;
-    for (let i = 0; i < this.cells.length; i++) {
-      const q = Math.round(this.cells[i]! * 4);
-      if (q === 0) continue;
-      h ^= i + 0x9e3779b9;
-      h = Math.imul(h, 0x01000193) >>> 0;
-      h ^= q & 0xff;
-      h = Math.imul(h, 0x01000193) >>> 0;
-    }
-    return `fnv1a:${h.toString(16).padStart(8, '0')}`;
+    return formatSignature(this.signatureSum);
   }
 
   get updateCount(): number {
@@ -412,7 +459,31 @@ export class OccupancyGrid {
     this.cells.fill(0);
     this.touch.fill(0);
     this.pingId = 0;
+    this.occupied = 0;
+    this.known = 0;
+    this.signatureSum = 0;
   }
+}
+
+/**
+ * One cell's contribution to the map signature.
+ *
+ * Zero for an untouched cell, so an empty map hashes to zero and a cell that
+ * returns to zero cleanly removes its own contribution. Quantised to quarter
+ * log-odds first: the signature must not change because a float landed one ULP
+ * away, or no-progress detection would never fire.
+ */
+function cellHash(index: number, value: number): number {
+  const q = Math.round(value * 4);
+  if (q === 0) return 0;
+  let h = Math.imul(index ^ 0x9e3779b9, 0x85ebca6b);
+  h = (h ^ (h >>> 13)) >>> 0;
+  h = Math.imul(h ^ q, 0xc2b2ae35);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+function formatSignature(sum: number): string {
+  return `bv1:${(sum >>> 0).toString(16).padStart(8, '0')}`;
 }
 
 /**
