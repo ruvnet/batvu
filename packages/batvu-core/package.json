@@ -1,0 +1,23 @@
+{
+  "name": "@batvu/core",
+  "version": "0.1.0",
+  "description": "BatVu core — wasm sonar pipeline binding, pose fusion, sonar inverse-sensor model and occupancy mapping. Runs unchanged in Node and in iOS Safari.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
+  "files": ["dist", "wasm", "README.md"],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "lint": "tsc --noEmit",
+    "test": "vitest run --root ../.."
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  }
+}

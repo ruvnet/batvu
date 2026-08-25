@@ -10,6 +10,7 @@
     "exactOptionalPropertyTypes": false,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "composite": true,
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,

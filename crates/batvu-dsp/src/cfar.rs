@@ -104,7 +104,7 @@ impl CfarConfig {
     /// the receive taper; we take 1.5x that on each side so the first sidelobes
     /// are excluded too, and twice the guard for training.
     pub fn sized_for(spec: &crate::chirp::ChirpSpec, taper: crate::window::Window) -> CfarConfig {
-        let mainlobe = (spec.fs / spec.bandwidth().max(1.0)) * taper.mainlobe_widening();
+        let mainlobe = (spec.fs / spec.bandwidth().max(1.0)) * spec.effective_widening(taper);
         let guard = (1.5 * mainlobe).ceil().max(4.0) as usize;
         CfarConfig {
             guard,
@@ -631,16 +631,19 @@ mod tests {
     fn sized_for_puts_the_guard_band_past_the_compressed_mainlobe() {
         use crate::chirp::ChirpSpec;
         use crate::window::Window;
-        let spec = ChirpSpec::default(); // 4 kHz sweep at 48 kHz -> 12-sample mainlobe
-        let cfg = CfarConfig::sized_for(&spec, Window::Hann);
-        // 12 * 1.67 = 20 samples, x1.5 = 30.
+        let spec = ChirpSpec::default(); // 3 kHz sweep at 48 kHz -> 16-sample nominal
+        let cfg = CfarConfig::sized_for(&spec, Window::Rect);
+        // 16 * 1.67 (the full Hann TRANSMIT taper) = 26.7, x1.5 = 41.
+        // The transmit taper dominates, so a receive window changes nothing —
+        // the sizing must not shrink just because rx_taper is 'rect'.
+        assert_eq!(CfarConfig::sized_for(&spec, Window::Hann).guard, cfg.guard);
         assert!(
-            cfg.guard >= 20,
+            cfg.guard >= 26,
             "guard {} must cover the mainlobe",
             cfg.guard
         );
         assert!(cfg.train >= 2 * cfg.guard - 1, "train {}", cfg.train);
-        assert!(cfg.merge_gap >= 12, "merge_gap {}", cfg.merge_gap);
+        assert!(cfg.merge_gap >= 16, "merge_gap {}", cfg.merge_gap);
 
         // A wider sweep compresses harder, so it needs a narrower guard.
         let wide = ChirpSpec {
@@ -648,7 +651,7 @@ mod tests {
             f1: 23_000.0,
             ..ChirpSpec::default()
         };
-        assert!(CfarConfig::sized_for(&wide, Window::Hann).guard < cfg.guard);
+        assert!(CfarConfig::sized_for(&wide, Window::Rect).guard < cfg.guard);
     }
 
     #[test]

@@ -1,10 +1,12 @@
 //! Linear-FM (chirp) synthesis — the emitted "call".
 //!
-//! An iPhone's usable ultrasonic band is narrow and it ends abruptly: the
-//! speaker and the mic both roll off hard above ~21 kHz, and a 48 kHz
-//! AudioContext puts Nyquist at 24 kHz. So BatVu sweeps roughly 18-22 kHz and
-//! buys its range performance with *pulse compression* rather than with a short
-//! loud pulse (which the speaker cannot produce anyway).
+//! An iPhone's usable ultrasonic band is narrow and it ends abruptly. Nyquist
+//! at a 48 kHz AudioContext is 24 kHz, but the real ceiling is far lower: the
+//! speaker and the microphone both fall off a cliff between 19 and 20 kHz, so
+//! the honest usable band is about 17.5-20.5 kHz. Bandwidth "bought" above that
+//! is bandwidth the hardware will not radiate. BatVu therefore buys its range
+//! performance with *pulse compression* rather than with a short loud pulse —
+//! which the speaker could not produce anyway.
 //!
 //! The governing relations:
 //!
@@ -12,9 +14,11 @@
 //! * compression gain      `G  = 10 * log10(B * T)`   — the time-bandwidth product
 //! * unambiguous range     `r_max = c * PRI / 2`
 //!
-//! With `B = 4 kHz` and `c = 343 m/s`, `dr = 4.3 cm` — about a fist. Widening the
-//! sweep is the only way to sharpen that, and the hardware says how far you can
-//! widen it. Lengthening `T` buys SNR, not resolution.
+//! With `B = 3 kHz` and `c = 343 m/s`, `c/2B = 5.7 cm` nominal — but the full
+//! Hann transmit taper widens the mainlobe by 1.67x, so the honest figure is
+//! **9.6 cm**. Widening the sweep is the only way to sharpen it, and the
+//! hardware says how far you can widen. Lengthening `T` buys SNR, not
+//! resolution — and costs blind range, at `c*T/2`.
 
 use crate::window::{self, Window};
 
@@ -45,13 +49,25 @@ pub struct ChirpSpec {
 
 impl Default for ChirpSpec {
     fn default() -> Self {
+        // The researched operating point (ADR-003, ADR-004).
+        //
+        // 17.5-20.5 kHz rather than the tempting 18-22 kHz: an iPhone's speaker
+        // and mic both fall off a cliff between 19 and 20 kHz, so bandwidth
+        // bought above ~20.5 kHz is bandwidth the hardware will not radiate. The
+        // band widens to 4 kHz only after an on-device loopback proves the top
+        // end is actually there.
+        //
+        // A FULL Hann transmit taper (not a light Tukey shoulder) because the
+        // transmit envelope is where sidelobe control is cheapest: it costs
+        // 4.5 dB of transmitted energy and buys -45 dB peak sidelobes, which is
+        // well below the reverberation floor of any real room.
         ChirpSpec {
             fs: 48_000.0,
-            f0: 18_000.0,
-            f1: 22_000.0,
-            duration_s: 0.010,
-            tx_window: Window::Tukey,
-            tukey_alpha: 0.20,
+            f0: 17_500.0,
+            f1: 20_500.0,
+            duration_s: 0.005,
+            tx_window: Window::Hann,
+            tukey_alpha: 1.0,
             amplitude: 0.60,
         }
     }
@@ -82,11 +98,26 @@ impl ChirpSpec {
         }
     }
 
-    /// Two-way range resolution in metres, including the window's mainlobe
-    /// widening — the honest number, not the textbook `c/2B`.
+    /// The EFFECTIVE mainlobe widening for this waveform and receive taper.
+    ///
+    /// Both tapers act on the same spectrum — for an LFM sweep, frequency maps
+    /// monotonically to time, so shaping the transmit envelope shapes the band —
+    /// and the wider of the two dominates. Taking the max rather than the receive
+    /// taper alone matters: with a full Hann transmit taper and NO receive
+    /// window, the receive-only reading says the mainlobe is 16 samples when it
+    /// measures 42, and every CFAR guard band sized from it is less than half as
+    /// wide as it needs to be.
+    pub fn effective_widening(&self, rx_taper: Window) -> f32 {
+        self.tx_window
+            .mainlobe_widening()
+            .max(rx_taper.mainlobe_widening())
+    }
+
+    /// Two-way range resolution in metres, including mainlobe widening — the
+    /// honest number, not the textbook `c/2B`.
     pub fn range_resolution_m(&self, c: f32, rx_taper: Window) -> f32 {
         let b = self.bandwidth().max(1.0);
-        (c / (2.0 * b)) * rx_taper.mainlobe_widening()
+        (c / (2.0 * b)) * self.effective_widening(rx_taper)
     }
 
     /// The blind zone: nothing can be resolved closer than half a pulse length,
@@ -256,11 +287,11 @@ mod tests {
 
     #[test]
     fn energy_sits_inside_the_sweep_band_and_not_outside_it() {
-        let spec = ChirpSpec::default(); // 18-22 kHz
+        let spec = ChirpSpec::default(); // 17.5-20.5 kHz
         let x = synth_real(&spec);
-        let inside = goertzel_power(&x, spec.fs, 20_000.0);
+        let inside = goertzel_power(&x, spec.fs, 19_000.0);
         let below = goertzel_power(&x, spec.fs, 8_000.0);
-        let above = goertzel_power(&x, spec.fs, 23_500.0);
+        let above = goertzel_power(&x, spec.fs, 23_000.0);
         assert!(inside > 1000.0 * below, "in-band {inside} vs 8 kHz {below}");
         assert!(
             inside > 1000.0 * above,
@@ -274,7 +305,7 @@ mod tests {
             tx_window: crate::window::Window::Rect,
             ..ChirpSpec::default()
         };
-        let tapered = ChirpSpec::default(); // Tukey 0.2
+        let tapered = ChirpSpec::default(); // full Hann
 
         // 12 kHz is well inside the audible range; a hard-edged pulse leaks there.
         let leak_rect = goertzel_power(&synth_real(&rect), rect.fs, 12_000.0);
@@ -311,22 +342,27 @@ mod tests {
     #[test]
     fn derived_quantities_agree_with_the_formulas() {
         let spec = ChirpSpec::default();
-        assert!((spec.bandwidth() - 4000.0).abs() < 1e-3);
-        assert!((spec.time_bandwidth() - 40.0).abs() < 1e-3);
-        // 10*log10(40) = 16.02 dB
+        assert!((spec.bandwidth() - 3000.0).abs() < 1e-3);
+        assert!((spec.time_bandwidth() - 15.0).abs() < 1e-3);
+        // 10*log10(15) = 11.76 dB
         assert!(
-            (spec.compression_gain_db() - 16.02).abs() < 0.05,
+            (spec.compression_gain_db() - 11.76).abs() < 0.05,
             "{}",
             spec.compression_gain_db()
         );
 
         let c = speed_of_sound(20.0);
-        // c/(2B) = 343.2/8000 = 4.29 cm, x1.67 for the hann receive taper.
-        let dr = spec.range_resolution_m(c, Window::Hann);
-        assert!((dr - 0.0716).abs() < 0.002, "{dr}");
-        // Half a 10 ms pulse.
+        // c/(2B) = 343.2/6000 = 5.72 cm nominal, x1.67 for the full Hann
+        // TRANSMIT taper = 9.6 cm realisable. Reporting the nominal figure alone
+        // would overstate the resolution by two thirds.
+        let dr = spec.range_resolution_m(c, Window::Rect);
+        assert!((dr - 0.0955).abs() < 0.002, "{dr}");
+        // A receive window on top does not widen it further: the transmit taper
+        // already dominates.
+        assert!((spec.range_resolution_m(c, Window::Hann) - dr).abs() < 1e-4);
+        // Half a 5 ms pulse.
         assert!(
-            (spec.blind_range_m(c) - 1.716).abs() < 0.01,
+            (spec.blind_range_m(c) - 0.858).abs() < 0.01,
             "{}",
             spec.blind_range_m(c)
         );
@@ -407,8 +443,8 @@ mod tests {
     #[test]
     fn instantaneous_frequency_sweeps_from_f0_to_f1() {
         let spec = ChirpSpec::default();
-        assert!((instantaneous_freq(&spec, 0.0) - 18_000.0).abs() < 1.0);
-        assert!((instantaneous_freq(&spec, spec.duration_s) - 22_000.0).abs() < 1.0);
-        assert!((instantaneous_freq(&spec, spec.duration_s / 2.0) - 20_000.0).abs() < 1.0);
+        assert!((instantaneous_freq(&spec, 0.0) - 17_500.0).abs() < 1.0);
+        assert!((instantaneous_freq(&spec, spec.duration_s) - 20_500.0).abs() < 1.0);
+        assert!((instantaneous_freq(&spec, spec.duration_s / 2.0) - 19_000.0).abs() < 1.0);
     }
 }

@@ -1,0 +1,34 @@
+{
+  "name": "@batvu/flywheel",
+  "version": "0.1.0",
+  "description": "BatVu policy evolution on @metaharness/flywheel \u2014 evolve the sonar's operating policy against simulated rooms, promote only what proves lift on a holdout without regressing a frozen anchor.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@batvu/core": "0.1.0",
+    "@batvu/sim": "0.1.0",
+    "@metaharness/flywheel": "^0.1.10",
+    "@batvu/horizon": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  }
+}

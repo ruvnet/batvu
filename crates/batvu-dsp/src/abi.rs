@@ -232,6 +232,13 @@ fn design_to_json(r: &pipeline::DesignReport) -> Value {
         ),
         ("rangeStepM", Value::num(r.range_step_m as f64)),
         ("sidelobeDb", Value::num(r.sidelobe_db as f64)),
+        ("mainlobeSamples", Value::num(r.mainlobe_samples as f64)),
+        ("recommendedGuard", Value::num(r.recommended_guard as f64)),
+        ("recommendedTrain", Value::num(r.recommended_train as f64)),
+        (
+            "recommendedMergeGap",
+            Value::num(r.recommended_merge_gap as f64),
+        ),
         (
             "warning",
             match &r.warning {
@@ -512,8 +519,8 @@ mod tests {
     #[test]
     fn design_defaults_match_the_rust_defaults() {
         let v = call(r#"{"op":"design","priS":0.05}"#);
-        assert!((v.get("bandwidthHz").unwrap().as_f32().unwrap() - 4000.0).abs() < 1.0);
-        assert!((v.get("compressionGainDb").unwrap().as_f32().unwrap() - 16.02).abs() < 0.05);
+        assert!((v.get("bandwidthHz").unwrap().as_f32().unwrap() - 3000.0).abs() < 1.0);
+        assert!((v.get("compressionGainDb").unwrap().as_f32().unwrap() - 11.76).abs() < 0.05);
         assert_eq!(v.get("warning").unwrap(), &Value::Null);
     }
 
@@ -565,7 +572,7 @@ mod tests {
     fn chirp_returns_the_exact_transmit_waveform() {
         let v = call(r#"{"op":"chirp"}"#);
         let n = v.get("len").unwrap().as_usize().unwrap();
-        assert_eq!(n, 480, "10 ms at 48 kHz");
+        assert_eq!(n, 240, "5 ms at 48 kHz");
         let s = v.get("samples").unwrap().as_arr().unwrap();
         assert_eq!(s.len(), n);
         let peak = s

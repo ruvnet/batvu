@@ -1,7 +1,22 @@
 // SPDX-License-Identifier: MIT
 import { defineConfig } from 'vitest/config';
+import { fileURLToPath } from 'node:url';
+
+const pkg = (name: string): string =>
+  fileURLToPath(new URL(`./packages/${name}/src/index.ts`, import.meta.url));
 
 export default defineConfig({
+  // Resolve workspace packages to SOURCE, not dist: tests then exercise the
+  // code as written rather than the last successful build, and a stale dist can
+  // never make a broken change look green.
+  resolve: {
+    alias: {
+      '@batvu/core': pkg('batvu-core'),
+      '@batvu/sim': pkg('batvu-sim'),
+      '@batvu/horizon': pkg('batvu-horizon'),
+      '@batvu/flywheel': pkg('batvu-flywheel'),
+    },
+  },
   test: {
     globals: false,
     environment: 'node',

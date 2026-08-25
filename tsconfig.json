@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/batvu-core" },
+    { "path": "./packages/batvu-sim" },
+    { "path": "./packages/batvu-horizon" },
+    { "path": "./packages/batvu-flywheel" }
+  ]
+}

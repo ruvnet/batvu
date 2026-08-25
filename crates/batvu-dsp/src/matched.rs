@@ -268,13 +268,14 @@ mod tests {
             hi += 1;
         }
         let width = hi - lo;
-        // 480-sample pulse compressed by BT=40; a hann taper widens the ~12
-        // sample mainlobe to roughly 20. Anything under 40 proves compression.
+        // A 240-sample pulse compressed by BT=15. The nominal mainlobe is
+        // fs/B = 16 samples, widened to ~27 by the full Hann transmit taper.
         assert!(
-            width < 40,
+            width < 80,
             "compressed width {width} samples (pulse is {})",
             tx.len()
         );
+        assert!(width * 3 < tx.len(), "compression should be at least 3x");
     }
 
     #[test]
@@ -297,7 +298,9 @@ mod tests {
         let trough = env[d1 + 1..d2].iter().fold(f32::MAX, |a, b| a.min(*b));
         let p1 = env[d1 - 2..=d1 + 2].iter().fold(0.0f32, |a, b| a.max(*b));
         let p2 = env[d2 - 2..=d2 + 2].iter().fold(0.0f32, |a, b| a.max(*b));
-        assert!(p1 > 0.3 && p2 > 0.3, "both peaks present: {p1} {p2}");
+        // The full Hann transmit taper costs 4.5 dB of transmitted energy, so
+        // the absolute peaks sit lower than an untapered pulse would give.
+        assert!(p1 > 0.2 && p2 > 0.2, "both peaks present: {p1} {p2}");
         assert!(
             trough < 0.5 * p1.min(p2),
             "peaks should be resolved, trough {trough}"
@@ -312,58 +315,68 @@ mod tests {
     }
 
     #[test]
-    fn tapering_the_band_suppresses_range_sidelobes() {
-        let spec = ChirpSpec::default();
+    fn the_transmit_taper_does_the_sidelobe_work_and_a_receive_window_adds_little() {
+        // The measurement behind the default `rx_taper: Rect` (ADR-004).
+        //
+        // The textbook says an unwindowed LFM matched filter has -13.3 dB first
+        // sidelobes and that you window the RECEIVER to fix it. That holds only
+        // when the TRANSMITTED pulse is unwindowed. With a full Hann transmit
+        // taper the band is already shaped: an unwindowed receiver measures about
+        // -45 dB, and a receive window on top buys single-digit dB while widening
+        // the mainlobe by a fifth. A real room's reverberation floor sits far
+        // above -45 dB, so that suppression is unobservable and the resolution it
+        // costs is not.
+        let spec = ChirpSpec::default(); // full Hann transmit taper
         let tx = chirp::synth_real(&spec);
         let record_len = 16_384;
         let delay = 4_000usize;
         let mut rec = vec![0.0f32; record_len];
         echo_at(&mut rec, &tx, delay, 1.0);
 
-        // The search must start OUTSIDE the mainlobe, and the mainlobe widens
-        // with the taper — that is the whole tradeoff. A fixed offset measures
-        // rect's first sidelobe but blackman-harris's mainlobe skirt, and makes
-        // the better window look worse. Scale the start with the widening.
-        let sidelobe = |taper: Window| -> f32 {
+        let measure = |taper: Window| -> (f32, usize) {
             let mut mf = MatchedFilter::new(&spec, record_len, taper);
             let mut env = vec![0.0f32; record_len];
             mf.envelope(&rec, &mut env);
             let peak = env[delay];
-            let mainlobe = (spec.fs / spec.bandwidth()) * taper.mainlobe_widening();
-            let start = delay + (1.5 * mainlobe).ceil() as usize;
-            let worst = env[start..(start + 400).min(env.len())]
+            let mut lo = delay;
+            while lo > 0 && env[lo] > peak * 0.5 {
+                lo -= 1;
+            }
+            let mut hi = delay;
+            while hi + 1 < record_len && env[hi] > peak * 0.5 {
+                hi += 1;
+            }
+            let width = hi - lo;
+            let from = delay + (width as f32 * 1.5).ceil() as usize;
+            let worst = env[from..(from + 800).min(record_len)]
                 .iter()
                 .fold(0.0f32, |a, b| a.max(*b));
-            20.0 * (worst / peak).log10()
+            (20.0 * (worst / peak).log10(), width)
         };
 
-        let rect_db = sidelobe(Window::Rect);
-        let hann_db = sidelobe(Window::Hann);
-        let bh_db = sidelobe(Window::BlackmanHarris);
+        let (rect_db, rect_w) = measure(Window::Rect);
+        let (hann_db, hann_w) = measure(Window::Hann);
 
-        // Rect lands on the textbook -13.3 dB first sidelobe for an LFM.
+        // An unwindowed RECEIVER is already far below the textbook -13.3 dB,
+        // because the transmit taper did the work.
         assert!(
-            (-16.0..-10.0).contains(&rect_db),
-            "rect first sidelobe {rect_db} dB should be near the textbook -13.3 dB"
+            rect_db < -40.0,
+            "rect PSL {rect_db} dB with a Hann transmit taper"
         );
-        // Hann's textbook -31.5 dB.
+        // The receive window still helps, but only by single-digit dB...
         assert!(
-            hann_db < rect_db - 12.0,
-            "hann {hann_db} dB vs rect {rect_db} dB"
+            hann_db < rect_db,
+            "hann {hann_db} should still beat rect {rect_db}"
         );
-        assert!(hann_db > -40.0, "hann {hann_db} dB is suspiciously good");
         assert!(
-            bh_db < hann_db - 3.0,
-            "blackman-harris {bh_db} dB vs hann {hann_db} dB"
+            hann_db > rect_db - 20.0,
+            "the receive window appears to buy {} dB, far more than measured",
+            rect_db - hann_db
         );
-
-        // But the improvement does NOT continue forever: a finite record and
-        // f32 arithmetic put a floor around -47 dB, so windows past
-        // blackman-harris buy nothing measurable here. Worth knowing before
-        // spending mainlobe width on one.
+        // ...and it costs real mainlobe width, which IS observable.
         assert!(
-            bh_db > -50.0,
-            "an unrealistically low floor ({bh_db} dB) means the test is wrong"
+            hann_w > rect_w,
+            "a receive window must widen the mainlobe: {rect_w} -> {hann_w}"
         );
     }
 
