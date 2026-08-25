@@ -10,6 +10,10 @@
 // window, Pfa 1e-2, a 120-degree beam assumption — and climbs under
 // @metaharness/flywheel's default frozen gate, which requires a candidate to
 // beat the incumbent on a holdout AND not regress a never-optimised anchor.
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { BatVuCore } from '../../batvu-core/dist/index.js';
 import { anchorRooms, holdoutRooms } from '../../batvu-sim/dist/index.js';
 import { verifyReplayBundle } from '@metaharness/flywheel';
@@ -76,4 +80,34 @@ console.log(`    milestone:         ${report.result.milestoneReached}`);
 // Verify independently, exactly as an outside reviewer would.
 const independent = verifyReplayBundle(report.result.replayBundle);
 console.log(`    re-verified:       ${independent.pass}  (${independent.chainSummary})`);
+// Write the bundle out so a reader can verify it without re-running the wheel.
+// This is the artifact the claim rests on: `verifyReplayBundle` re-runs the
+// FROZEN gate over sealed scores, so it proves the promotions were earned under
+// a rule nobody moved — a property no amount of console output can establish.
+const bundlePath = join(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../../artifacts/flywheel/replay-bundle.json',
+);
+mkdirSync(dirname(bundlePath), { recursive: true });
+writeFileSync(
+  bundlePath,
+  `${JSON.stringify(
+    {
+      gateFingerprint: report.gateFingerprint,
+      replayVerified: report.replayVerified,
+      chainSummary: report.replaySummary,
+      milestoneReached: report.result.milestoneReached,
+      generationsRun: report.result.generationsRun,
+      liftCurve: report.result.liftCurve,
+      promotionNotes: report.promotionNotes,
+      rootPolicy: report.rootPolicy,
+      finalPolicy: report.finalPolicy,
+      replayBundle: report.result.replayBundle,
+    },
+    null,
+    2,
+  )}\n`,
+);
+console.log(`\n  wrote artifacts/flywheel/replay-bundle.json`);
+
 console.log(`\n  ${report.result.generationsRun} generations in ${elapsed}s`);

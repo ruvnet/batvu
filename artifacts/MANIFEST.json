@@ -1,0 +1,63 @@
+{
+  "generatedBy": "npm run artifacts",
+  "seed": 195883021,
+  "note": "Hashes are of the files as committed. Re-running `npm run artifacts` reproduces them exactly for the generated files; collected files carry the timings of the machine that produced them and will differ.",
+  "artifacts": [
+    {
+      "path": "bench/latest.json",
+      "producedBy": "npm run bench",
+      "note": "Per-stage timings against the 66.7 ms pulse-repetition budget. Desktop x86; the phone figures in the README are extrapolated from these, not measured.",
+      "bytes": 2804,
+      "sha256": "3f93233038f1d89ef0d39c766b19d468afb3457be763be848c64ba166c042784",
+      "status": "present"
+    },
+    {
+      "path": "e2e/e2e-report.json",
+      "producedBy": "npm run e2e",
+      "note": "The real app in a real headless Chromium against a simulated room. Every check is a pass/fail with the observed value.",
+      "bytes": 2763,
+      "sha256": "0ededb594b99e2eb20223c21ce403dc7d83646953658e695a74baca52cc360fe",
+      "status": "present"
+    },
+    {
+      "path": "e2e/batvu-demo-scan.png",
+      "producedBy": "npm run e2e",
+      "note": "What the plan-position display actually drew at the end of that run.",
+      "bytes": 443698,
+      "sha256": "9f9c87a54f2e4cf83f37dd43e2789294be406b30f34ade07f0b71ade9f884e9c",
+      "status": "present"
+    },
+    {
+      "path": "field/scan.ultrasonic.jsonl",
+      "producedBy": "npm run artifacts",
+      "note": "72 pings of the \"living-room\" scene on the BatVu -> RuField wire. This exact file is a test fixture in ruvnet/rufield: rufield-adapters parses it and asserts the events validate, which is the integration's only cross-language conformance check.",
+      "bytes": 193832,
+      "sha256": "f7d6be987d6273a95d7021ab39145ae14b2d05e1dfde1ed3ac1b04f007e91b1d",
+      "status": "present"
+    },
+    {
+      "path": "field/field-event.sample.json",
+      "producedBy": "npm run artifacts",
+      "note": "One ping projected into a rufield_core::FieldEvent. Unsigned on purpose — the signature is over serde's byte-exact rendering of a Rust struct, so rufield mints it. The tensor is the 32-bin P1 reduction, which is what the stock privacy policy allows onto a network; the full profile is P0 and edge-local.",
+      "bytes": 1987,
+      "sha256": "0929a0f9b9a1a228bd312c1438f75b115353b29d00704addcafc728123f057ae",
+      "status": "present"
+    },
+    {
+      "path": "memory/room-signature.json",
+      "producedBy": "npm run artifacts",
+      "note": "The same room re-scanned at five headings, and four different rooms, with the cosine similarity of the descriptor at each. `separation` is the gap between the worst same-room pair and the best different-room one — the only interval a threshold can live in. A measurement on four simulator rooms, not a validated recognition rate: four rooms is not a population, and a real home with several similarly-shaped rooms will narrow it.",
+      "bytes": 1123,
+      "sha256": "0ef5cecdeaf07d6cbcc4598b0441006f35e4000f35cf13e32ad9a7147012113e",
+      "status": "present"
+    },
+    {
+      "path": "flywheel/replay-bundle.json",
+      "producedBy": "npm run flywheel",
+      "note": "Ed25519-signed promotion receipts plus the gate fingerprint. `verifyReplayBundle` re-runs the frozen gate over sealed scores offline, so a reader can check the promotions without trusting this repository.",
+      "bytes": 29172,
+      "sha256": "6a5b3b35ac9478af408b90badb325a6b23bc3f603c90df84bbb5eff58cadae33",
+      "status": "present"
+    }
+  ]
+}

@@ -32,6 +32,8 @@ import {
   recordLenFor,
 } from '../packages/batvu-core/dist/index.js';
 import { livingRoom, sampleBeam } from '../packages/batvu-sim/dist/index.js';
+import { UltrasonicRecorder, toFieldEvent } from '../packages/batvu-field/dist/index.js';
+import { roomSignature } from '../packages/batvu-memory/dist/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const RESULTS = join(here, 'results');
@@ -172,7 +174,47 @@ results.push(
   ),
 );
 
-// ── stage 5: the simulator, which only CI pays for ───────────────────────────
+// ── stage 5: the integration surfaces ────────────────────────────────────────
+//
+// Both of these are OFF the per-ping path and the benchmark exists to keep
+// them there. Serialising a ping to RuField's wire is per-ping work and has to
+// fit alongside the DSP; reducing a whole grid to a room signature is a full
+// 1.7 M-voxel scan and belongs at the END of a session, never inside
+// `pingWithBeam`. Measuring both in the same report is what makes the
+// difference visible rather than asserted.
+{
+  const fieldResult = plan.processSamples(records[0]);
+  const envelope = plan.envelope;
+  const recorder = new UltrasonicRecorder({ deviceId: 'bench', source: 'simulated' });
+  let stamp = 1_756_162_800;
+  results.push(
+    measure(
+      'field: encode one ping to .ultrasonic.jsonl',
+      () => {
+        stamp += 1 / 15;
+        recorder.reset();
+        recorder.record(fieldResult, envelope, beams[0], stamp);
+      },
+      { iterations: 200 },
+    ),
+  );
+
+  recorder.reset();
+  const line = recorder.record(fieldResult, envelope, beams[0], stamp + 1);
+  results.push(
+    measure('field: project one ping to a FieldEvent', (i) => toFieldEvent(line, { sequence: i }), {
+      iterations: 200,
+    }),
+  );
+
+  results.push(
+    measure('memory: room signature over the whole grid', () => roomSignature(wholeGrid), {
+      iterations: 20,
+    }),
+  );
+}
+
+// ── stage 6: the simulator, which only CI pays for ───────────────────────────
 results.push(
   measure(
     'sim: render one record (wasm+JS)',

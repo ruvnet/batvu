@@ -1,0 +1,99 @@
+{
+  "spec_version": "rufield.mfs.v0.1",
+  "event_id": "batvu-batvu-reference-01-000012",
+  "timestamp_ns": 1756162800799999200,
+  "sensor": {
+    "modality": "ultrasonic",
+    "vendor": "batvu",
+    "device_id": "batvu-reference-01",
+    "placement": "handheld",
+    "coordinate_frame": "enu_scan_local",
+    "position_m": [
+      0,
+      0,
+      0
+    ],
+    "orientation_xyzw": [
+      -0.8433914654292701,
+      0,
+      0,
+      0.5372995775552668
+    ],
+    "clock_domain": "device_monotonic"
+  },
+  "tensor": {
+    "spec_version": "rufield.mfs.v0.1",
+    "timestamp_ns": 1756162800799999200,
+    "modality": "ultrasonic",
+    "axes": [
+      "range"
+    ],
+    "shape": [
+      32
+    ],
+    "values": [
+      0,
+      0,
+      0.0000681,
+      0.0000464,
+      0.0000703,
+      0.0000821,
+      0.0000604,
+      0.0000142,
+      0.000076,
+      0.0000649,
+      0.0000811,
+      0.0001,
+      0.000113,
+      0.0001846,
+      0.0127008,
+      0.0590455,
+      0.0461478,
+      0.0004688,
+      0.0001552,
+      0.0000945,
+      0.0000429,
+      0.0000716,
+      0.0000745,
+      0.0000753,
+      0.0000922,
+      0.000099,
+      0.0001049,
+      0.0000811,
+      0.0000773,
+      0.0000824,
+      0.0000437,
+      0.0001047
+    ],
+    "confidence": 1,
+    "noise_floor": 0.000050991,
+    "calibration_id": null,
+    "privacy_class": "P1"
+  },
+  "observation": {
+    "zone_id": "living_room",
+    "space_cell": null,
+    "range_m": 2.609154,
+    "velocity_mps": null,
+    "motion_vector": null,
+    "confidence": 1,
+    "features": {
+      "echo_count": 1,
+      "range_m": 2.609154,
+      "peak_snr_db": 34.2007,
+      "noise_floor": 0.000050991,
+      "blast_amplitude": 0.2700517
+    },
+    "labels": [
+      "surface_echo"
+    ],
+    "privacy_class": "P1"
+  },
+  "provenance": {
+    "raw_hash": "sha256:unsigned",
+    "firmware_hash": "sha256:unsigned",
+    "model_id": "batvu.sonar.matched_filter.v1",
+    "calibration_id": "batvu_uncalibrated",
+    "synthetic": true
+  }
+}

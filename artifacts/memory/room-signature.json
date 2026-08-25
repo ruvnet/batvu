@@ -1,0 +1,55 @@
+{
+  "room": "living-room",
+  "seed": 195883021,
+  "pings": 72,
+  "dimensions": 128,
+  "version": 2,
+  "coverage": 0.1111111111111111,
+  "azimuthSupport": 64,
+  "occupiedVoxels": 17041,
+  "knownVoxels": 102871,
+  "meanRangeM": 2.89677338770809,
+  "headingSweep": [
+    {
+      "headingDeg": 0,
+      "similarity": 1.0000000000000002
+    },
+    {
+      "headingDeg": 23,
+      "similarity": 0.9998993972386274
+    },
+    {
+      "headingDeg": 90,
+      "similarity": 1.0000000000000002
+    },
+    {
+      "headingDeg": 187,
+      "similarity": 0.9999191255192492
+    },
+    {
+      "headingDeg": 301,
+      "similarity": 0.9998977869414799
+    }
+  ],
+  "differentRooms": [
+    {
+      "room": "corridor",
+      "similarity": 0.8622619524243821
+    },
+    {
+      "room": "cluttered-office",
+      "similarity": 0.7873657114822874
+    },
+    {
+      "room": "small-bathroom",
+      "similarity": 0.7415643265117626
+    },
+    {
+      "room": "empty-hall",
+      "similarity": 0.7523673945995218
+    }
+  ],
+  "worstSameRoom": 0.9998977869414799,
+  "bestDifferentRoom": 0.8622619524243821,
+  "separation": 0.13763583451709782
+}
