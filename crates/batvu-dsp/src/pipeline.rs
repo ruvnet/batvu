@@ -66,6 +66,37 @@ pub struct SonarConfig {
     /// masquerades as objects at 0.3-0.6 m, which is precisely the range where a
     /// phone held at arm's length is most interesting.
     pub blast_cancellation: bool,
+    /// Pulse repetition interval in samples, or 0 when the caller does not know
+    /// it.
+    ///
+    /// A live capture is a CONTINUOUS ring, so a record longer than one PRI
+    /// contains the blasts of several previous pings — at the shipping
+    /// defaults, a 284 ms record at 15 pings/s holds about four. They are all
+    /// the same sound at the same level, so a search that takes the loudest is
+    /// choosing between them by noise.
+    ///
+    /// Nothing about that corrupts a RANGE: whichever blast wins, the echoes
+    /// measured after it are that ping's echoes and their ranges are right.
+    /// What it corrupts is the POSE TAG. The attitude attached to the ping is
+    /// the attitude NOW, and the echoes may be from three pings ago — up to
+    /// about 16 degrees away at a natural sweep rate, randomly, every ping.
+    /// That is the one error the occupancy map's corroboration rule cannot
+    /// average out, because it is not noise on a measurement, it is the
+    /// measurement being filed in the wrong place.
+    ///
+    /// The way out is that blasts repeat on an exact schedule and echoes do
+    /// not. Anchor on the strongest arrival — which is a blast, because a blast
+    /// travels ten centimetres and an echo travels metres — then step forward
+    /// by whole PRIs to the most recent one that still has a full analysis
+    /// window after it. No amplitude comparison decides anything, so a loud
+    /// near echo cannot be mistaken for a blast.
+    ///
+    /// Zero means "unknown", and restores the single-shot behaviour exactly:
+    /// take the strongest arrival in the search span. That is right for a
+    /// one-shot capture and for every scene the simulator renders, which is
+    /// precisely why no test saw the bug — every simulated record contains
+    /// exactly one blast.
+    pub pri_samples: usize,
 }
 
 impl Default for SonarConfig {
@@ -91,6 +122,7 @@ impl Default for SonarConfig {
             direct_search_s: 0.25,
             min_snr_db: 6.0,
             blast_cancellation: true,
+            pri_samples: 0,
         }
     }
 }
@@ -232,6 +264,79 @@ impl Pipeline {
         self.mf.fft_size()
     }
 
+    /// Index of the direct-path blast to time from.
+    ///
+    /// The strongest arrival in the search span is always a blast: the direct
+    /// path travels the ten centimetres between speaker and microphone, and
+    /// every echo travels metres, so nothing else comes close. What that does
+    /// NOT tell you is WHICH blast, and in a continuous capture that is the
+    /// question — see `pri_samples`.
+    ///
+    /// So: anchor on the strongest, then walk forward one pulse repetition
+    /// interval at a time for as long as an arrival is actually there and a
+    /// full analysis window still fits behind it. The last one wins, because
+    /// its echoes are the ones the caller is about to tag with the attitude it
+    /// is holding now.
+    ///
+    /// The "full analysis window" constraint matters: a complete measurement of
+    /// an earlier ping beats a truncated one of the latest.
+    fn find_blast(&self, search: usize, n: usize) -> usize {
+        let mut strongest = 0usize;
+        for i in 0..search {
+            if self.env_full[i] > self.env_full[strongest] {
+                strongest = i;
+            }
+        }
+        let peak = self.env_full[strongest];
+        if !(peak > 0.0) || !self.cfg.sync_to_direct_path || self.cfg.pri_samples == 0 {
+            return strongest;
+        }
+
+        let window = self.cfg.lag_for_range(self.cfg.max_range_m).ceil().max(0.0) as usize;
+        // The neighbourhood a candidate is refined over: four compressed
+        // mainlobe widths, about a hundred samples.
+        //
+        // NOT the autocorrelation's length, which is the obvious choice and is
+        // wrong. The ACF spans the filter's whole correlation support — 3840
+        // samples at the shipping waveform — so a window that wide reaches more
+        // than a pulse repetition interval in each direction and would refine a
+        // candidate straight into the neighbouring blast, which is the bug this
+        // function exists to fix. A hundred samples is 0.36 m of range: wide
+        // enough to absorb any drift in where the blast lands, far too narrow
+        // to reach the next arrival, and narrow enough that the only thing it
+        // could confuse a blast with is an echo from inside the blind disc.
+        let mainlobe = (self.cfg.chirp.fs / self.cfg.chirp.bandwidth().max(1.0)
+            * self.cfg.chirp.effective_widening(self.cfg.rx_taper))
+        .ceil()
+        .max(1.0) as usize;
+        let extent = (mainlobe * 4).max(1);
+        // A blast one interval on should be within a few dB of this one. The
+        // test is only ever applied at a KNOWN position, so it answers "is
+        // there another blast here" and never "which arrival is a blast".
+        let present = peak * 0.25;
+
+        let mut latest = strongest;
+        loop {
+            let next = latest + self.cfg.pri_samples;
+            if next >= search || next.saturating_add(window) > n {
+                break;
+            }
+            let lo = next.saturating_sub(extent);
+            let hi = (next + extent).min(search);
+            let mut candidate = lo;
+            for j in lo..hi {
+                if self.env_full[j] > self.env_full[candidate] {
+                    candidate = j;
+                }
+            }
+            if self.env_full[candidate] < present {
+                break;
+            }
+            latest = candidate;
+        }
+        latest
+    }
+
     /// Compress one record and extract its range profile.
     pub fn process(&mut self, x: &[f32]) -> RangeProfile {
         let n = self.record_len;
@@ -275,15 +380,12 @@ impl Pipeline {
         }
 
         // ── time origin ──────────────────────────────────────────────────────
+        //
+        // The most recent blast, not the loudest. See `blast_pick_ratio`.
         let search = ((self.cfg.direct_search_s * self.cfg.chirp.fs) as usize)
             .min(n)
             .max(1);
-        let mut blast = 0usize;
-        for i in 0..search {
-            if self.env_full[i] > self.env_full[blast] {
-                blast = i;
-            }
-        }
+        let blast = self.find_blast(search, n);
         let blast_amplitude = self.env_full[blast];
         let t0 = if self.cfg.sync_to_direct_path {
             cfar::parabolic_peak(&self.env_full, blast)
@@ -511,6 +613,133 @@ mod tests {
             "empty room produced {:?}",
             prof.detections
         );
+    }
+
+    /// The bug the simulator structurally could not show.
+    ///
+    /// A live capture is a continuous ring. `readRecent(recordLen)` hands the
+    /// DSP the last 284 ms of it, and at 15 pings a second that span contains
+    /// about four transmit blasts — all the same sound at the same level. The
+    /// old search took the loudest, so which one won was decided by noise.
+    ///
+    /// Every simulated record has exactly ONE blast, so every test passed.
+    /// This one builds the record a phone actually produces: four pings at one
+    /// pulse repetition interval apart, each looking at a different wall, with
+    /// an EARLIER blast made deliberately louder — which is precisely what a
+    /// little noise does.
+    #[test]
+    fn t0_locks_onto_the_most_recent_blast_in_a_continuous_record() {
+        let cfg = SonarConfig::default();
+        let fs = cfg.chirp.fs;
+        let pri = (fs / 15.0) as usize; // 15 pings/s => 3200 samples
+        let total = 13_919; // recordLenFor(defaults), the shipping record length
+
+        // Four pings, each with its own wall, oldest first. The ranges are far
+        // enough apart that a confusion is unmistakable in the output.
+        let ranges = [1.2f32, 2.0, 3.0, 4.0];
+        let mut record = vec![0.0f32; total];
+        for (k, range) in ranges.iter().enumerate() {
+            let scene = sim::SceneConfig {
+                latency_samples: k * pri,
+                record_len: total,
+                noise_rms: 0.0,
+                // The oldest blast is the loudest, which is what makes this a
+                // test of the SELECTION RULE rather than of the geometry.
+                direct_path_gain: if k == 0 { 0.95 } else { 0.80 },
+                seed: 0x1234 + k as u32,
+                ..Default::default()
+            };
+            let one = sim::render(&cfg.chirp, &[sim::Target::wall(*range, 0.9)], &scene);
+            for (dst, src) in record.iter_mut().zip(one.iter()) {
+                *dst += src;
+            }
+        }
+
+        // The caller knows its own ping rate; this is what lets the pipeline
+        // tell four identical blasts apart.
+        let mut live = cfg.clone();
+        live.pri_samples = pri;
+        let mut pipeline = Pipeline::new(live, total);
+        let profile = pipeline.process(&record);
+
+        // t0 must land on the LAST blast, at 3 PRIs in — not the loudest one at
+        // zero. The tolerance is one compressed mainlobe.
+        let expected = 3.0 * pri as f32 + sim::direct_index(&cfg.chirp, &SceneConfig::default());
+        assert!(
+            (profile.t0 - expected).abs() < 40.0,
+            "t0 {} should be near the most recent blast at {expected}, not the loudest at ~{}",
+            profile.t0,
+            sim::direct_index(&cfg.chirp, &SceneConfig::default()),
+        );
+
+        // The negative control. Same record, `pri_samples` left at 0 — the
+        // single-shot rule this replaces. It picks the loudest blast, which is
+        // the OLDEST one here, and reports its wall. Without this assertion the
+        // test above could pass for the wrong reason and nobody would know the
+        // rule had stopped doing anything.
+        let mut single_shot = Pipeline::new(cfg.clone(), total);
+        let old_profile = single_shot.process(&record);
+        assert!(
+            old_profile.t0 < pri as f32,
+            "the old rule should lock onto the loudest (oldest) blast, got t0 {}",
+            old_profile.t0
+        );
+        assert!(
+            old_profile
+                .detections
+                .iter()
+                .any(|d| (d.range_m - 1.2).abs() < 0.15),
+            "the old rule reports the OLDEST ping's wall at 1.2 m, tagged with the newest attitude: {:?}",
+            old_profile
+                .detections
+                .iter()
+                .map(|d| d.range_m)
+                .collect::<Vec<_>>()
+        );
+
+        // And the consequence that actually matters: the echo reported is the
+        // LAST ping's wall. Before the fix this was whichever ping's wall
+        // happened to follow the loudest blast — a real echo, at a real range,
+        // filed under an attitude from up to three pings ago.
+        let found = profile
+            .detections
+            .iter()
+            .any(|d| (d.range_m - 4.0).abs() < 0.15);
+        assert!(
+            found,
+            "expected the most recent ping's wall at 4.0 m, got {:?}",
+            profile
+                .detections
+                .iter()
+                .map(|d| d.range_m)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// The fallback path: one blast in the record behaves exactly as before.
+    #[test]
+    fn a_single_blast_record_is_unaffected_by_the_recency_rule() {
+        let cfg = SonarConfig::default();
+        let scene = SceneConfig {
+            latency_samples: 1_000,
+            record_len: 13_919,
+            ..Default::default()
+        };
+        let record = sim::render(&cfg.chirp, &[sim::Target::wall(2.4, 0.9)], &scene);
+
+        let mut pipeline = Pipeline::new(cfg.clone(), scene.record_len);
+        let profile = pipeline.process(&record);
+
+        let expected = sim::direct_index(&cfg.chirp, &scene);
+        assert!(
+            (profile.t0 - expected).abs() < 2.0,
+            "t0 {} vs blast at {expected}",
+            profile.t0
+        );
+        assert!(profile
+            .detections
+            .iter()
+            .any(|d| (d.range_m - 2.4).abs() < 0.15));
     }
 
     #[test]

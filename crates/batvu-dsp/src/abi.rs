@@ -145,6 +145,7 @@ pub fn sonar_config_from_json(v: &Value) -> SonarConfig {
         direct_search_s: v.f32_or("directSearchS", d.direct_search_s),
         min_snr_db: v.f32_or("minSnrDb", d.min_snr_db),
         blast_cancellation: v.bool_or("blastCancellation", d.blast_cancellation),
+        pri_samples: v.usize_or("priSamples", d.pri_samples),
     }
 }
 

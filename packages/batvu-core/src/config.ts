@@ -54,6 +54,29 @@ export interface SonarConfig {
   directSearchS: number;
   minSnrDb: number;
   blastCancellation: boolean;
+  /**
+   * Pulse repetition interval in samples, or 0 when it is not known.
+   *
+   * Only a LIVE capture needs this, and it is the difference between a map and
+   * a smear. The microphone ring is continuous, so the record handed to the DSP
+   * is the last 284 ms of it — which at 15 pings a second contains about four
+   * transmit blasts, all the same sound at the same level. Choosing between
+   * them by amplitude is choosing by noise.
+   *
+   * That does not corrupt a range. It corrupts the POSE TAG: the attitude
+   * attached to the ping is the attitude now, and the echoes may be three pings
+   * old — up to ~16 degrees away at a natural sweep rate, randomly, every ping.
+   * Corroboration cannot average that out, because it is not noise on a
+   * measurement, it is a measurement filed in the wrong place.
+   *
+   * Blasts repeat on an exact schedule and echoes do not, so telling the core
+   * the interval lets it step from the strongest arrival to the most recent
+   * blast without comparing amplitudes at all. Use `priSamplesFor`.
+   *
+   * 0 means "one blast in this record", which is true of every simulated scene
+   * and of any one-shot capture — and is why no test caught this.
+   */
+  priSamples: number;
 }
 
 /**
@@ -112,6 +135,9 @@ export const DEFAULT_SONAR_CONFIG: SonarConfig = {
   directSearchS: 0.25,
   minSnrDb: 6,
   blastCancellation: true,
+  // The simulator renders one blast per record, so the default is the
+  // single-shot rule. A live session overrides it; see `priSamplesFor`.
+  priSamples: 0,
 };
 
 /**
@@ -124,6 +150,20 @@ export const DEFAULT_SONAR_CONFIG: SonarConfig = {
  * available here and not one a room scan wants to make.
  */
 export const DEFAULT_PING_RATE_HZ = 15;
+
+/**
+ * Samples between transmit blasts at a given ping rate — what
+ * `SonarConfig.priSamples` wants.
+ *
+ * Returns 0 for a rate that is not a usable rate, which is the honest answer:
+ * "I do not know the interval", and the core falls back to the single-shot
+ * rule rather than stepping by a garbage stride.
+ */
+export function priSamplesFor(config: SonarConfig, pingRateHz: number): number {
+  if (!Number.isFinite(pingRateHz) || pingRateHz <= 0) return 0;
+  if (!Number.isFinite(config.fs) || config.fs <= 0) return 0;
+  return Math.round(config.fs / pingRateHz);
+}
 
 /**
  * Mainlobe widening factor for a receive taper, relative to a rectangular one.

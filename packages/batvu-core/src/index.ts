@@ -29,6 +29,7 @@ export {
   mainlobeWidening,
   mainlobeHalfWidth,
   recommendedCfarWindows,
+  priSamplesFor,
   DEFAULT_PING_RATE_HZ,
 } from './config.js';
 export type { SonarConfig, DesignReport } from './config.js';

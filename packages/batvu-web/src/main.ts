@@ -35,7 +35,7 @@ import {
   type Vec3,
 } from '@batvu/core';
 import { livingRoom, sampleBeam, type Room } from '@batvu/sim';
-import { coneRays } from '@batvu/core';
+import { coneRays, priSamplesFor } from '@batvu/core';
 import { AudioSession, checkSupport, fitConfigToRate, heterodyne } from './audio.js';
 import {
   BatVuRenderer,
@@ -176,6 +176,15 @@ export class BatVuApp {
         this.warn(`The browser kept ${ignored} ON. Ranges will be unreliable.`);
       }
 
+      // The live path is the ONLY one that needs this, and it needs it before
+      // the plan is built. A continuous microphone ring hands the DSP a record
+      // holding several transmit blasts; telling the core the interval is what
+      // lets it lock onto the most recent one instead of the loudest, so the
+      // echoes it reports belong to the attitude being recorded with them.
+      // Demo mode leaves it at 0 — each synthetic record has exactly one blast.
+      const pingRateHz = Math.min(DEFAULT_PING_RATE_HZ, 1 / minPriSeconds(this.config));
+      this.config = { ...this.config, priSamples: priSamplesFor(this.config, pingRateHz) };
+
       this.preparePlan();
       const waveform = this.transmitWaveform();
       audio.start(
@@ -183,7 +192,7 @@ export class BatVuApp {
           waveform,
           config: this.config,
           recordLen: recordLenFor(this.config),
-          pingRateHz: Math.min(DEFAULT_PING_RATE_HZ, 1 / minPriSeconds(this.config)),
+          pingRateHz,
         },
         (ping) => this.onRecord(ping.samples),
       );
