@@ -27,9 +27,52 @@ const root = join(here, '..');
 const PORT = Number(process.env.PORT ?? 8137);
 const ARTIFACTS = join(here, 'artifacts');
 
-/** The pre-installed browser; Playwright's own download is disabled here. */
-const EXECUTABLE =
-  process.env.BATVU_CHROMIUM ?? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+/**
+ * Which Chromium to launch, or `undefined` to let Playwright find its own.
+ *
+ * Undefined is the right default and the earlier hard-coded path was a bug
+ * worth naming: it pointed at the exact versioned directory of the machine this
+ * harness was written on, so the test could only ever pass there. CI failed at
+ * `browserType.launch: Failed to launch chromium because executable doesn't
+ * exist`, and would have failed identically on any contributor's laptop.
+ *
+ * A test that passes only in the environment that authored it is worse than no
+ * test, because it reads as coverage. Playwright's own resolution is what the
+ * `playwright` dependency is for; `BATVU_CHROMIUM` remains as an escape hatch
+ * for a sandbox that pins a different build.
+ */
+const EXECUTABLE = process.env.BATVU_CHROMIUM;
+
+/**
+ * Launch Chromium, and turn Playwright's "just run npx playwright install"
+ * banner into something actionable when that is not the answer.
+ *
+ * It is not the answer in a pre-provisioned sandbox, where the browsers are
+ * already on disk under `PLAYWRIGHT_BROWSERS_PATH` but at a build number this
+ * `playwright` release does not ask for. Downloading over them is exactly what
+ * such an image is set up to avoid, so the escape hatch is to name the binary.
+ */
+async function launchChromium() {
+  if (EXECUTABLE) {
+    console.log(`  browser: ${EXECUTABLE} (BATVU_CHROMIUM)`);
+    return chromium.launch({ executablePath: EXECUTABLE });
+  }
+  try {
+    return await chromium.launch();
+  } catch (err) {
+    const root = process.env.PLAYWRIGHT_BROWSERS_PATH;
+    if (root) {
+      throw new Error(
+        `${err.message}\n\n` +
+          `PLAYWRIGHT_BROWSERS_PATH is set to ${root}, so this looks like a sandbox with\n` +
+          `pre-provisioned browsers at a different build number than playwright asks for.\n` +
+          `Point at one directly rather than downloading over them, e.g.\n\n` +
+          `  BATVU_CHROMIUM=${root}/chromium-<build>/chrome-linux/chrome npm run e2e\n`,
+      );
+    }
+    throw err;
+  }
+}
 
 const checks = [];
 function check(name, ok, detail = '') {
@@ -64,7 +107,7 @@ async function main() {
   try {
     await waitForServer(`http://127.0.0.1:${PORT}/index.html`);
 
-    browser = await chromium.launch({ executablePath: EXECUTABLE });
+    browser = await launchChromium();
     // A phone-shaped viewport, because the layout is the deliverable too: a
     // desktop-sized run would not catch a control that falls off the screen.
     const context = await browser.newContext({

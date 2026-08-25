@@ -49,11 +49,14 @@ jobs:
       - name: TypeScript — tests
         run: npm test
 
+      # Explicit, because it was previously assumed. The e2e harness used to
+      # hard-code the Chromium path of the machine it was written on, so this
+      # step was never needed there and never worked anywhere else.
+      - name: Install the e2e browser
+        run: npx playwright install --with-deps chromium
+
       - name: End-to-end — the real app in a real browser
         run: npm run e2e
-        env:
-          # Chromium is pre-installed on the runner image via Playwright.
-          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '0'
 
       - name: Benchmarks
         run: npm run bench
