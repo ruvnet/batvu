@@ -27,6 +27,8 @@ export {
   HARMONICS,
   RADIAL_BINS,
   SIGNATURE_DIM,
+  SIGNATURE_VERSION,
+  harmonicAttenuation,
 } from './signature.js';
 export type { RoomSignature, SignatureOptions } from './signature.js';
 
@@ -36,6 +38,7 @@ export {
   MAX_ENTRIES,
   MAX_LABEL_BYTES,
   DEFAULT_RECALL_THRESHOLD,
+  DEFAULT_RECALL_MARGIN,
 } from './store.js';
 export type {
   RoomRecord,

@@ -26,6 +26,7 @@
 
 import {
   SIGNATURE_DIM,
+  SIGNATURE_VERSION,
   signatureSimilarity,
   type RoomSignature,
 } from './signature.js';
@@ -39,14 +40,31 @@ export const MAX_ENTRIES = 4096;
  *  end up in JSON, in logs and possibly in a UI. */
 export const MAX_LABEL_BYTES = 256;
 
-/** Default similarity at or above which two scans are called the same place.
+/** Default similarity floor for reporting a hit at all.
  *
- *  NOT a probability, and NOT derived from theory — it is the midpoint of the
- *  separation measured in `__tests__/store.test.ts` between same-room-rotated
- *  pairs and different-room pairs on the simulator's scenes. Any real
- *  deployment must re-measure it; a threshold carried over from a simulator is
- *  exactly the kind of number that looks validated and is not. */
+ *  This is a FILTER, not a decision. Every descriptor entry is non-negative, so
+ *  cosine similarity has a high floor and unrelated rooms routinely score above
+ *  0.5 — a level threshold alone is much less selective than its value makes it
+ *  look. What separates rooms is the MARGIN between the best hit and the next
+ *  one, which is why `RecallHit` carries it and `recognize` gates on it.
+ *
+ *  The value sits below the worst same-room-rotated similarity measured in
+ *  `__tests__/signature.test.ts` (>0.95 over a full turn on the simulator's
+ *  rooms) so a genuine re-scan is never filtered out before the margin is
+ *  computed. Any real deployment must re-measure both numbers; a threshold
+ *  carried over from a simulator is exactly the kind of number that looks
+ *  validated and is not. */
 export const DEFAULT_RECALL_THRESHOLD = 0.9;
+
+/** Default margin the best hit must beat the runner-up by before `recognize`
+ *  will call it a match.
+ *
+ *  Measured on the simulator's four rooms, where the gap between the worst
+ *  same-room-rotated pair and the best different-room pair is small but
+ *  consistent. Four rooms is not a population, and a real home with several
+ *  similarly-shaped rooms will need a larger margin — the honest thing this
+ *  number does is force the caller to look at it. */
+export const DEFAULT_RECALL_MARGIN = 0.02;
 
 export interface RoomRecord {
   /** Caller's identifier for the place. */
@@ -68,7 +86,11 @@ export interface RoomRecord {
 
 export interface RecallHit {
   record: RoomRecord;
+  /** Cosine similarity. High floor — read the margin, not this. */
   similarity: number;
+  /** How far this hit beats the next-best one. `Infinity` when it is the only
+   *  candidate, because there is nothing for it to be confused with. */
+  margin: number;
 }
 
 export interface RecallOptions {
@@ -76,6 +98,10 @@ export interface RecallOptions {
   topK?: number;
   /** Minimum similarity to report at all. Default `DEFAULT_RECALL_THRESHOLD`. */
   minSimilarity?: number;
+  /** Margin over the runner-up that `recognize` requires. Default
+   *  `DEFAULT_RECALL_MARGIN`. Ignored by `recall`, which reports everything
+   *  above `minSimilarity` and lets the caller decide. */
+  minMargin?: number;
   /** Refuse to answer from a scan that swept less than this fraction of the
    *  sphere. Default 0 — off, because the honest default is to answer and let
    *  the caller see `coverage`, not to silently return nothing. */
@@ -112,6 +138,7 @@ export class RoomMemory {
    */
   remember(id: string, signature: RoomSignature, label?: string): RoomRecord {
     const key = checkId(id);
+    checkVersion(signature.version);
     const vector = checkVector(signature.vector);
     if (!this.records.has(key) && this.records.size >= MAX_ENTRIES) {
       throw new Error(
@@ -152,30 +179,56 @@ export class RoomMemory {
     const minCoverage = options.minCoverage ?? 0;
     if (signature.coverage < minCoverage) return [];
 
+    checkVersion(signature.version);
     const query = checkVector(signature.vector);
-    const hits: RecallHit[] = [];
-    for (const record of this.records.values()) {
-      const similarity = signatureSimilarity(query, record.vector);
-      if (similarity >= min) hits.push({ record, similarity });
-    }
+
+    // Scored against EVERY record, not only the ones above the floor, because
+    // the margin is measured against the runner-up — and the runner-up may sit
+    // below the reporting threshold. Filtering first would report an infinite
+    // margin for a hit that in fact had a close competitor.
+    const scored = [...this.records.values()].map((record) => ({
+      record,
+      similarity: signatureSimilarity(query, record.vector),
+    }));
     // Ties broken by id so the ordering is total and the tests are not
     // hostage to Map insertion order.
-    hits.sort((a, b) =>
+    scored.sort((a, b) =>
       b.similarity === a.similarity
         ? a.record.id.localeCompare(b.record.id)
         : b.similarity - a.similarity,
     );
-    return hits.slice(0, topK);
+
+    const hits: RecallHit[] = [];
+    for (let i = 0; i < scored.length && hits.length < topK; i++) {
+      const entry = scored[i]!;
+      if (entry.similarity < min) break;
+      const next = scored[i + 1];
+      hits.push({
+        record: entry.record,
+        similarity: entry.similarity,
+        margin: next ? entry.similarity - next.similarity : Number.POSITIVE_INFINITY,
+      });
+    }
+    return hits;
   }
 
-  /** The single best match, or null — the question the UI actually asks. */
+  /**
+   * The single best match, or null — the question the UI actually asks.
+   *
+   * Requires the margin as well as the level. A room that scores 0.96 against
+   * two stored places, and 0.955 against a third, has not been recognised; it
+   * has been confused, and the honest answer to "where am I" is nothing.
+   */
   recognize(signature: RoomSignature, options: RecallOptions = {}): RecallHit | null {
-    return this.recall(signature, { ...options, topK: 1 })[0] ?? null;
+    const minMargin = options.minMargin ?? DEFAULT_RECALL_MARGIN;
+    const best = this.recall(signature, { ...options, topK: 1 })[0];
+    if (!best) return null;
+    return best.margin >= minMargin ? best : null;
   }
 
-  toJSON(): { version: 1; dim: number; records: SerializedRecord[] } {
+  toJSON(): { version: number; dim: number; records: SerializedRecord[] } {
     return {
-      version: 1,
+      version: SIGNATURE_VERSION,
       dim: SIGNATURE_DIM,
       records: this.all().map((r) => ({
         id: r.id,
@@ -200,8 +253,16 @@ export class RoomMemory {
   static fromJSON(value: unknown): RoomMemory {
     const memory = new RoomMemory();
     if (!isObject(value)) throw new Error('batvu: room memory JSON is not an object');
-    if (value.version !== 1) {
-      throw new Error(`batvu: unsupported room memory version ${String(value.version)}`);
+    // Version before dimension, and both. v1 and v2 descriptors are BOTH 128
+    // long and BOTH unit-norm, so the dimension check cannot tell them apart —
+    // a v2 build silently comparing v2 queries against v1 records would return
+    // confident nonsense rather than an error. There is no migration: the
+    // descriptor is derived from a grid nobody kept, so an old store is
+    // rebuilt by re-scanning, not converted.
+    if (value.version !== SIGNATURE_VERSION) {
+      throw new Error(
+        `batvu: room memory is version ${String(value.version)}, this build writes version ${SIGNATURE_VERSION}; re-scan to rebuild it`,
+      );
     }
     if (value.dim !== SIGNATURE_DIM) {
       throw new Error(
@@ -260,12 +321,21 @@ export function toFieldEmbedding(
   signature: RoomSignature,
   sourceEventId: string,
 ): FieldEmbedding {
+  checkVersion(signature.version);
   return {
     modality: 'ultrasonic',
     vector: [...checkVector(signature.vector)],
     privacy_class: 'P3',
     source_event_id: checkId(sourceEventId),
   };
+}
+
+function checkVersion(version: number): void {
+  if (version !== SIGNATURE_VERSION) {
+    throw new Error(
+      `batvu: signature is version ${version}, this build compares version ${SIGNATURE_VERSION}`,
+    );
+  }
 }
 
 function checkVector(v: Float32Array): Float32Array {

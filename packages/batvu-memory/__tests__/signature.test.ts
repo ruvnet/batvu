@@ -21,8 +21,11 @@ import {
 } from '@batvu/sim';
 import {
   AZIMUTH_BINS,
+  HARMONICS,
   RoomMemory,
   SIGNATURE_DIM,
+  SIGNATURE_VERSION,
+  harmonicAttenuation,
   roomSignature,
   signatureSimilarity,
   toFieldEmbedding,
@@ -190,6 +193,51 @@ describe('room signature', () => {
     expect(sim).toBeLessThan(0.95);
   });
 
+  it('the k=0 harmonic is the band mass, so the old standalone elevation block was a copy', () => {
+    // Why v2 replaced the elevation-mass block with a mean-range one. The DC
+    // coefficient of a band's azimuth row is by definition the sum of the row,
+    // which IS the band's mass — so carrying both spent eight dimensions on a
+    // duplicate and silently double-weighted elevation.
+    const m = mapRoom(livingRoom(), SWEEP);
+    const sig = roomSignature(m.grid, { bandNormalize: false });
+    m.session.destroy();
+
+    // Block 1 is [0, 48): massSpectrum, laid out as [e * HARMONICS + k].
+    // Its DC entries are the only ones a rotation cannot touch at all.
+    const dc = [];
+    for (let e = 0; e < 8; e++) dc.push(sig.vector[e * HARMONICS]!);
+    expect(dc.filter((v) => v > 0).length).toBeGreaterThan(0);
+
+    // Block 4 is [120, 128): elevRange. It is a RANGE in metres, so once both
+    // are block-normalised they must not be proportional to one another —
+    // which is exactly what "no longer redundant" means.
+    const elev = [...sig.vector.slice(120, 128)];
+    const ratios = dc
+      .map((v, i) => (v > 1e-9 ? elev[i]! / v : Number.NaN))
+      .filter((v) => Number.isFinite(v));
+    expect(ratios.length).toBeGreaterThan(2);
+    const spread = Math.max(...ratios) / Math.min(...ratios);
+    expect(spread).toBeGreaterThan(1.1);
+  });
+
+  it('the attenuation model it argues from is the one the measurement agrees with', () => {
+    // The file claims the mid-bin loss is a magnitude attenuation of
+    // sqrt(1 - 2d(1-d)(1 - cos(2*pi*k/A))), worst at d = 1/2. If that model is
+    // right, the retained harmonics are barely touched and the discarded ones
+    // are annihilated — which is the actual reason K is 6 and not 32.
+    expect(harmonicAttenuation(1, 0.5)).toBeCloseTo(0.9988, 3);
+    expect(harmonicAttenuation(5, 0.5)).toBeCloseTo(0.9699, 3);
+    expect(harmonicAttenuation(32, 0.5)).toBeCloseTo(0, 6);
+    // A bin-aligned shift costs nothing at any harmonic — the shift theorem.
+    for (let k = 0; k < AZIMUTH_BINS / 2; k++) {
+      expect(harmonicAttenuation(k, 0)).toBeCloseTo(1, 9);
+    }
+    // Monotone in k across the retained band, so truncation is principled.
+    for (let k = 1; k < HARMONICS; k++) {
+      expect(harmonicAttenuation(k, 0.5)).toBeLessThan(harmonicAttenuation(k - 1, 0.5));
+    }
+  });
+
   it('returns a zero vector for an empty map instead of a confident nonsense one', () => {
     const sig = roomSignature(new OccupancyGrid());
     expect(sig.occupiedVoxels).toBe(0);
@@ -223,6 +271,45 @@ describe('room memory', () => {
     expect(hit).not.toBeNull();
     expect(hit!.record.id).toBe('office');
     expect(hit!.record.label).toBe('the office');
+    // Sole candidate: nothing to be confused with.
+    expect(hit!.margin).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it('refuses to name a room it cannot separate from another', () => {
+    // The reason `recognize` gates on margin rather than level. Two records
+    // that both score high against a query mean the query has been CONFUSED,
+    // not recognised, and the honest answer to "where am I" is nothing.
+    const memory = new RoomMemory();
+    const room = livingRoom();
+    const a = mapRoom(room, SWEEP, 0);
+    const sig = roomSignature(a.grid);
+    memory.remember('twin-a', sig);
+    memory.remember('twin-b', sig);
+    a.session.destroy();
+
+    const again = mapRoom(room, SWEEP, (40 * Math.PI) / 180);
+    const query = roomSignature(again.grid);
+    again.session.destroy();
+
+    // Both are reported by `recall`, with a margin of ~0 between them...
+    const hits = memory.recall(query, { topK: 2 });
+    expect(hits).toHaveLength(2);
+    expect(hits[0]!.margin).toBeLessThan(0.001);
+    // ...and `recognize` declines to pick one.
+    expect(memory.recognize(query)).toBeNull();
+  });
+
+  it('refuses a stored descriptor from a different signature version', () => {
+    const memory = new RoomMemory();
+    const m = mapRoom(livingRoom(), SWEEP, 0);
+    memory.remember('a', roomSignature(m.grid));
+    m.session.destroy();
+
+    const json = memory.toJSON();
+    expect(json.version).toBe(SIGNATURE_VERSION);
+    // v1 and v2 are both 128 long and both unit-norm, so only the version
+    // number can tell them apart.
+    expect(() => RoomMemory.fromJSON({ ...json, version: 1 })).toThrow(/re-scan/);
   });
 
   it('declines to recognise a room it has never seen', () => {
