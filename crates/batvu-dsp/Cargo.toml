@@ -1,0 +1,16 @@
+[package]
+name = "batvu-dsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "BatVu sonar DSP core — LFM chirp synthesis, analytic matched filtering (pulse compression), CFAR detection and a deterministic room-echo simulator, compiled to wasm32-unknown-unknown with no wasm-bindgen."
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+
+[dev-dependencies]
