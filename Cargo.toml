@@ -1,0 +1,17 @@
+[workspace]
+members = ["crates/batvu-dsp"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "MIT"
+repository = "https://github.com/ruvnet/batvu"
+authors = ["rUv <ruv@ruv.net>"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

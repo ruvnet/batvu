@@ -1,0 +1,131 @@
+{
+  "checks": [
+    {
+      "name": "the app boots and instantiates the wasm core",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "starts idle",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "pings are processed",
+      "ok": true,
+      "detail": "45 pings"
+    },
+    {
+      "name": "echoes are detected",
+      "ok": true,
+      "detail": "70 detections over 45 pings"
+    },
+    {
+      "name": "the sweep covers ground",
+      "ok": true,
+      "detail": "5.7% of the sphere"
+    },
+    {
+      "name": "the occupancy map forms",
+      "ok": true,
+      "detail": "13901 occupied voxels"
+    },
+    {
+      "name": "a ping result is exposed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the direct path is found",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the record does not clip",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no non-finite samples reach the DSP",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the range window matches the config",
+      "ok": true,
+      "detail": "starts at 0.597 m"
+    },
+    {
+      "name": "ranges land inside the simulated room",
+      "ok": true,
+      "detail": "[3.18]"
+    },
+    {
+      "name": "#ppi renders visible content",
+      "ok": true,
+      "detail": "17.65% of pixels lit"
+    },
+    {
+      "name": "#ascope renders visible content",
+      "ok": true,
+      "detail": "3.62% of pixels lit"
+    },
+    {
+      "name": "#coverage renders visible content",
+      "ok": true,
+      "detail": "94.24% of pixels lit"
+    },
+    {
+      "name": "stops on request",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no pings after stop",
+      "ok": true,
+      "detail": "46 -> 46"
+    },
+    {
+      "name": "no uncaught page errors",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no console errors",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "every request the page makes succeeds",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "state": {
+    "running": true,
+    "mode": "demo",
+    "pings": 45,
+    "detections": 70,
+    "coverage": 0.05709876543209876,
+    "occupiedVoxels": 13901,
+    "lastResult": {
+      "blastAmplitude": 0.2700231671333313,
+      "detections": [
+        {
+          "amplitude": 0.03307799622416496,
+          "rangeM": 3.176140785217285,
+          "snrDb": 31.083969116210938,
+          "widthM": 0.17160731554031372
+        }
+      ],
+      "envLen": 1512,
+      "noiseFloor": 0.00008116968820104375,
+      "rangeStepM": 0.0035751524847000837,
+      "sanitized": 0,
+      "saturated": false,
+      "startRangeM": 0.5970379114151001,
+      "t0": 13.988932609558105
+    },
+    "warnings": []
+  }
+}

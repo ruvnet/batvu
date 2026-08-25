@@ -1,0 +1,102 @@
+{
+  "config": {
+    "band": "17500-20500 Hz",
+    "durationS": 0.005,
+    "pingRateHz": 15,
+    "recordLen": 13919,
+    "priMs": 66.66666666666667,
+    "minPriMs": 39.96354527731923
+  },
+  "node": "v22.22.2",
+  "platform": "linux-x64",
+  "results": [
+    {
+      "name": "dsp: compress + detect (wasm)",
+      "iterations": 200,
+      "medianMs": 0.9862559999999689,
+      "p95Ms": 1.1042400000000043,
+      "minMs": 0.9528119999999944,
+      "maxMs": 1.3006599999999935
+    },
+    {
+      "name": "dsp: process, no copy-in (wasm)",
+      "iterations": 200,
+      "medianMs": 0.9520070000000374,
+      "p95Ms": 1.105831999999964,
+      "minMs": 0.9256239999999707,
+      "maxMs": 1.5951379999999062
+    },
+    {
+      "name": "map: occupancy integrate (JS)",
+      "iterations": 120,
+      "medianMs": 0.24777100000005703,
+      "p95Ms": 0.4652959999999666,
+      "minMs": 0.10458500000004278,
+      "maxMs": 0.5177219999999352
+    },
+    {
+      "name": "map: state signature (JS)",
+      "iterations": 60,
+      "medianMs": 0.000413999999977932,
+      "p95Ms": 0.0005419999999958236,
+      "minMs": 0.0004069999999956053,
+      "maxMs": 0.0016180000000076689
+    },
+    {
+      "name": "map: occupied count (JS)",
+      "iterations": 60,
+      "medianMs": 0.00012300000003051537,
+      "p95Ms": 0.0002040000000533837,
+      "minMs": 0.00012000000003808964,
+      "maxMs": 0.00024900000005345646
+    },
+    {
+      "name": "map: occupied points (JS)",
+      "iterations": 30,
+      "medianMs": 4.226646000000073,
+      "p95Ms": 5.103129999999965,
+      "minMs": 4.184034999999994,
+      "maxMs": 5.164075999999909
+    },
+    {
+      "name": "END TO END: one ping, DSP + map",
+      "iterations": 120,
+      "medianMs": 1.2815249999998741,
+      "p95Ms": 1.5596830000001773,
+      "minMs": 1.1037180000000717,
+      "maxMs": 1.603256999999985
+    },
+    {
+      "name": "field: encode one ping to .ultrasonic.jsonl",
+      "iterations": 200,
+      "medianMs": 0.21066499999983535,
+      "p95Ms": 0.2555050000000847,
+      "minMs": 0.03949299999999312,
+      "maxMs": 0.9117320000000291
+    },
+    {
+      "name": "field: project one ping to a FieldEvent",
+      "iterations": 200,
+      "medianMs": 0.012928000000101747,
+      "p95Ms": 0.017558000000008178,
+      "minMs": 0.0017380000001594453,
+      "maxMs": 0.07452299999999923
+    },
+    {
+      "name": "memory: room signature over the whole grid",
+      "iterations": 20,
+      "medianMs": 8.166496000000052,
+      "p95Ms": 8.581422000000202,
+      "minMs": 8.051308999999947,
+      "maxMs": 8.581422000000202
+    },
+    {
+      "name": "sim: render one record (wasm+JS)",
+      "iterations": 40,
+      "medianMs": 4.2824849999999515,
+      "p95Ms": 4.782118999999966,
+      "minMs": 4.174007999999958,
+      "maxMs": 5.643824999999879
+    }
+  ]
+}

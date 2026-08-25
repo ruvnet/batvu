@@ -1,0 +1,44 @@
+{
+  "name": "batvu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BatVu \u2014 iPhone acoustic sonar: see a room the way a bat does. Part of the ruview spatial-intelligence effort.",
+  "homepage": "https://github.com/ruvnet/batvu",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ruvnet/batvu.git"
+  },
+  "license": "MIT",
+  "author": "rUv <ruv@ruv.net>",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "build": "npm run build:wasm && tsc --build && npm run build --workspace @batvu/web",
+    "test": "vitest run",
+    "test:rust": "cargo test --manifest-path crates/batvu-dsp/Cargo.toml --release",
+    "bench": "node bench/run-bench.mjs",
+    "bench:rust": "cargo test --manifest-path crates/batvu-dsp/Cargo.toml --release -- --ignored --nocapture bench_",
+    "lint": "tsc --build && tsc --noEmit -p packages/batvu-web/tsconfig.json",
+    "fmt:rust": "cargo fmt --manifest-path crates/batvu-dsp/Cargo.toml --all",
+    "clippy": "cargo clippy --manifest-path crates/batvu-dsp/Cargo.toml --all-targets -- -D warnings",
+    "flywheel": "node packages/batvu-flywheel/scripts/run-flywheel.mjs",
+    "demo": "node packages/batvu-horizon/scripts/demo.mjs",
+    "web:dev": "node packages/batvu-web/scripts/serve.mjs",
+    "e2e": "node e2e/run-e2e.mjs",
+    "clean": "tsc --build --clean",
+    "test:all": "npm run test:rust && npm run build && npm test && npm run e2e",
+    "artifacts": "node scripts/collect-artifacts.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "playwright": "^1.62.1",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

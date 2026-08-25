@@ -1,0 +1,10 @@
+[submodule "vendor/ultrasonic"]
+	path = vendor/ultrasonic
+	url = https://github.com/ruvnet/ultrasonic
+	branch = main
+	shallow = true
+[submodule "vendor/metaharness"]
+	path = vendor/metaharness
+	url = https://github.com/ruvnet/metaharness
+	branch = main
+	shallow = true

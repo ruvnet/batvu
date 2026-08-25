@@ -1,0 +1,11 @@
+node_modules/
+dist/
+target/
+*.tsbuildinfo
+.DS_Store
+coverage/
+wasm/*.wasm
+bench/results/*.json
+e2e/artifacts/
+.vitest/
+*.log

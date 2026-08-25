@@ -1,0 +1,125 @@
+# ADR-018: A scan on the RuField wire — a file in, a range axis, and no signature
+
+**Status**: Accepted
+**Date**: 2026-08-25
+**Related**: ADR-001 (what BatVu measures), ADR-011 (orientation-only pose), ADR-015 (the simulator is the ground truth)
+**Upstream**: [ruvnet/rufield#11](https://github.com/ruvnet/rufield/pull/11)
+
+## Context
+
+RuField MFS is the schema several ruvnet projects use to describe what a
+camera-free sensor measured. Its modality registry has had `Ultrasonic` at code
+7 since v0.1, documented as "ultrasonic echo / time-of-flight", with nothing
+implementing it. BatVu is an ultrasonic echo sensor. The gap is obvious enough
+that the only interesting questions are the ones about how.
+
+Three of them turned out to have non-obvious answers, and each was settled by
+reading the other side's source rather than by assuming.
+
+## Decision 1: the tensor is `[Range]`, and the beam is a pose
+
+`[Angle, Range]` is the obvious shape for a sonar. It is also a lie.
+
+`FieldAxis::Angle` means *angle-of-arrival bins* — what an array produces once it
+has measured direction. BatVu has one microphone. It measures range; the
+direction attached to an echo is where the operator happened to be pointing the
+phone. That is pose, not signal, and a consumer reading an `Angle` axis would be
+entitled to believe a beam-steering measurement the hardware cannot make.
+
+So the profile is rank-1 over `[Range]`, and the beam rides in
+`SensorDescriptor::orientation_xyzw` as the minimal rotation taking sensor-local
+`+Z` onto it. Roll about the boresight is unobservable with one transducer pair,
+so the minimal rotation is the one that asserts nothing about the axis nobody
+measured. `position_m` is `[0, 0, 0]`, which under ADR-011 is a definition
+rather than a measurement.
+
+Worth recording: `validate_evidence_at` would have accepted any of the three
+candidate shapes. There is no `Modality::Ultrasonic` branch in `rufield-core`.
+The choice is enforced by tests on both sides, not by the schema.
+
+## Decision 2: BatVu writes a file; it does not POST
+
+The design that suggests itself is a publisher POSTing `FieldEvent`s to RuView.
+That endpoint does not exist. RuView's `/api/field` and `/ws/field` are both
+`GET` — it is a *producer* of field events — and `rufield-viewer` is a reader
+that pulls from an upstream. Neither repository has an ingest route; ADR-262
+lists it as deferred. Building a client for it would have meant writing the
+server first.
+
+So the ingest path is a file. BatVu writes `.ultrasonic.jsonl`; rufield's
+`UltrasonicReplayAdapter` parses it, signs it, and hands events to a fusion
+engine.
+
+And the producer direction inverts: `FieldSurface` serves the `GET /api/field`
+body, which is what plugs BatVu into `rufield-viewer --source live --upstream
+<host>` — a consumer that already ships and already works.
+
+Two keys are absent from that body on purpose. RuView emits `dev_signing_key` as
+a JSON bool while the viewer types it `Option<String>`, and emits
+`signer_pubkey_hex` where the viewer reads `signer_pubkey`. Either mismatch
+rejects the whole batch; the viewer ignores unknown keys; so `events` is served
+alone.
+
+## Decision 3: BatVu does not sign
+
+`canonical_event_bytes` is `serde_json::to_vec` of a Rust struct with the
+signature fields cleared. The message is therefore defined by serde's
+declaration-order field emission, its omission of `skip_serializing_if` options,
+`BTreeMap` key ordering, and serde_json's shortest-round-trip float formatting.
+
+Reproducing those bytes from TypeScript is possible. It is also the one part of
+this integration that could pass every test and still fail on a phone: a float
+that JavaScript prints as `0.1` and Rust prints as `0.1` agree right up until
+one of them does not, and the failure mode is a signature that verifies in CI
+and fails in the field.
+
+BatVu emits the measurement. rufield mints the credential.
+
+The consequence is stated rather than worked around: an unsigned event is
+fusable only under `TrustPolicy::simulation()`. That is the correct home for
+simulator output and the wrong home for anything else — which is why the file
+path, the one rufield signs, is the path a real deployment uses.
+
+## Decision 4: the emitter refuses to write what its consumer would refuse to read
+
+Every bound the Rust parser enforces is restated in `wire.ts` and checked before
+a line is written. The duplication is the point. Discovering the contract at
+ingest means discovering it on someone else's machine, after the phone is gone
+and the room has changed, with nothing to look at but a parse error on a line
+number.
+
+`UltrasonicRecorder` owns the one rule the line format cannot express:
+timestamps must strictly increase. rufield's replay watermark drops a
+non-advancing event and never tells the sender, so the phone is the only place
+that can be caught loudly.
+
+## Consequences
+
+**A cross-language conformance check that fails a build.**
+`artifacts/field/scan.ultrasonic.jsonl` is generated by `npm run artifacts` and
+is a test fixture in `rufield-adapters`. Drift between the two implementations
+now fails a build in one repository or the other.
+
+**A privacy decision expressed as a data shape.** The full per-bin profile is a
+sensor frame and is classified P0, which the stock policy denies to a network.
+The 32-bin max-pooled reduction is P1 and is allowed. A consumer cannot
+un-coarsen a coarse profile, so the policy is enforced by what is on the wire
+rather than by a label asking nicely.
+
+**An honest negative result, asserted in a test.** With the shipped
+`room_state.toml` a BatVu scan produces no inferences at all. No rule lists
+`"ultrasonic"`, and adding one would not help: the fusion engine's feature
+vocabulary — `motion_energy`, `breathing_band`, `transient`, `presence`,
+`posture_sit`, `posture_lie` — is entirely statements about a body, and
+`range_m` has no lookup arm.
+
+The adapter could set `features["presence"]` and light up the shipped
+`person_present` rule. It does not, because an echo at 2.4 m is a surface, and
+one transducer pair cannot tell a person from a coat on the back of a chair.
+RuField v0.1 has no predicate for static geometry, and saying so is worth more
+than a demo that works for a reason that is not true.
+
+**Every current recording is `synthetic: true`.** BatVu's data is its own
+simulator's (ADR-015), so `captured_replay()` and `production()` reject it
+outright — as they should. Marking it otherwise to get it accepted is the exact
+invariant RuField's own ADRs name.
