@@ -1,0 +1,40 @@
+name: verify
+
+on:
+  push:
+    branches: [main, feat/iphone-acoustic-spatial-intelligence]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dsp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      - run: npm run bench | tee benchmark.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: batvu-dsp-benchmark
+          path: benchmark.json
+
+  horizon-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify pinned Horizon package exists
+        run: test -f vendor/metaharness/packages/horizon/package.json
+      - name: Verify ultrasonic source exists
+        run: test -f vendor/ultrasonic/README.md
