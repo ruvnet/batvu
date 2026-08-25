@@ -181,6 +181,7 @@ export class BatVuApp {
       audio.start(
         {
           waveform,
+          config: this.config,
           recordLen: recordLenFor(this.config),
           pingRateHz: Math.min(DEFAULT_PING_RATE_HZ, 1 / minPriSeconds(this.config)),
         },

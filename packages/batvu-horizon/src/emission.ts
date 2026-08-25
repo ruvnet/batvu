@@ -106,6 +106,34 @@ export function classifyEmission(
     findings.push({ check, verdict, detail });
   };
 
+  // ── finiteness, first, before any comparison ─────────────────────────────
+  //
+  // Every check below is a comparison, and every comparison against NaN is
+  // FALSE — including the negated ones. So a single NaN does not fail a check,
+  // it DELETES it, and the guard returns `allow` having examined nothing. A
+  // security review found four of these at once: `f0: NaN` erased both band
+  // checks (`Math.min(NaN, f1)` is NaN), `fs: NaN` erased the aliasing check by
+  // making Nyquist NaN, `tukeyAlpha: NaN` erased the taper gate, and
+  // `durationS: Infinity` — a transmitter that never stops — came back `gate`
+  // because the duty-cycle check skipped a non-finite duty.
+  //
+  // These are not hypothetical inputs. The flywheel mutates exactly these
+  // fields, and a division inside a proposer is all it takes.
+  const numbers: Array<[string, number]> = [
+    ['fs', config.fs],
+    ['f0', config.f0],
+    ['f1', config.f1],
+    ['durationS', config.durationS],
+    ['amplitude', config.amplitude],
+    ['pingRateHz', pingRateHz],
+  ];
+  if (config.txWindow === 'tukey') numbers.push(['tukeyAlpha', config.tukeyAlpha]);
+  for (const [name, value] of numbers) {
+    if (!Number.isFinite(value)) {
+      add('finite', 'deny', `${name} is ${value}; a guard cannot classify what it cannot compare`);
+    }
+  }
+
   // ── level ────────────────────────────────────────────────────────────────
   if (!Number.isFinite(config.amplitude) || config.amplitude < 0) {
     add('amplitude', 'deny', `amplitude ${config.amplitude} is not a usable level`);
@@ -153,7 +181,11 @@ export function classifyEmission(
   }
 
   const duty = Math.max(0, config.durationS) * Math.max(0, pingRateHz);
-  if (Number.isFinite(duty) && duty > policy.maxDutyCycle) {
+  if (!Number.isFinite(duty)) {
+    // Deny, not skip. A non-finite duty cycle is an unbounded transmitter, and
+    // "we could not compute it" is the worst possible reason to allow one.
+    add('duty-cycle', 'deny', `duty cycle is ${duty}, which is not a fraction of anything`);
+  } else if (duty > policy.maxDutyCycle) {
     add(
       'duty-cycle',
       'deny',

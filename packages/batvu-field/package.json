@@ -1,0 +1,17 @@
+{
+  "name": "@batvu/field",
+  "version": "0.1.0",
+  "description": "BatVu → RuField MFS. Turns a sonar scan into signed FieldEvents on the rufield.mfs.v0.1 wire, with privacy classification and a calibration receipt.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "license": "MIT",
+  "scripts": { "build": "tsc", "lint": "tsc --noEmit" },
+  "dependencies": {
+    "@batvu/core": "0.1.0",
+    "@batvu/horizon": "0.1.0"
+  },
+  "devDependencies": { "@types/node": "^20.11.0", "typescript": "^5.4.0", "vitest": "^2.0.0" }
+}

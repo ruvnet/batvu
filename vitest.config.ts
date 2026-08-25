@@ -13,8 +13,13 @@ export default defineConfig({
     alias: {
       '@batvu/core': pkg('batvu-core'),
       '@batvu/sim': pkg('batvu-sim'),
+      '@batvu/horizon/emission': fileURLToPath(
+        new URL('./packages/batvu-horizon/src/emission.ts', import.meta.url),
+      ),
       '@batvu/horizon': pkg('batvu-horizon'),
       '@batvu/flywheel': pkg('batvu-flywheel'),
+      '@batvu/field': pkg('batvu-field'),
+      '@batvu/memory': pkg('batvu-memory'),
     },
   },
   test: {

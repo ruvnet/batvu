@@ -78,6 +78,28 @@ describe('the emission guard', () => {
     expect(classifyEmission(cfg({ durationS: 0 }), 17).verdict).toBe('deny');
   });
 
+  it('a NaN cannot delete a check by making its comparison false', () => {
+    // Four holes a security review found at once, all the same shape: every
+    // comparison against NaN is false, so a NaN did not FAIL a check — it
+    // removed it, and the guard returned `allow` having examined nothing.
+    //
+    // `f0: NaN` made `Math.min(NaN, f1)` NaN, so neither band bound fired.
+    expect(classifyEmission(cfg({ f0: NaN }), 17).verdict).toBe('deny');
+    // `fs: NaN` made Nyquist NaN, disabling the aliasing check entirely.
+    expect(classifyEmission(cfg({ fs: NaN }), 17).verdict).toBe('deny');
+    // `tukeyAlpha: NaN` skipped the taper gate.
+    expect(
+      classifyEmission(cfg({ txWindow: 'tukey', tukeyAlpha: NaN }), 17).verdict,
+    ).toBe('deny');
+    // And the worst one: an infinite pulse is a transmitter that never stops.
+    // It scored `gate`, because `!(Infinity > 0)` is false so the duration
+    // check passed, and the duty-cycle check SKIPPED itself on a non-finite
+    // duty rather than denying.
+    const forever = classifyEmission(cfg({ durationS: Infinity }), 17);
+    expect(forever.verdict).toBe('deny');
+    expect(forever.findings.some((f) => f.check === 'duty-cycle')).toBe(true);
+  });
+
   it('exposes a policy a deployment can tighten', () => {
     const strict = { ...DEFAULT_EMISSION_POLICY, maxAmplitude: 0.3 };
     expect(classifyEmission(cfg(), 17, strict).verdict).toBe('deny');

@@ -1,0 +1,16 @@
+{
+  "name": "@batvu/memory",
+  "version": "0.1.0",
+  "description": "BatVu room memory — a heading-invariant room signature over the occupancy grid, and a RuVector-shaped store that answers \"have I been here before?\".",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "license": "MIT",
+  "scripts": { "build": "tsc", "lint": "tsc --noEmit" },
+  "dependencies": {
+    "@batvu/core": "0.1.0"
+  },
+  "devDependencies": { "@types/node": "^20.11.0", "typescript": "^5.4.0", "vitest": "^2.0.0" }
+}

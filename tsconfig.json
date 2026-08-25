@@ -4,6 +4,8 @@
     { "path": "./packages/batvu-core" },
     { "path": "./packages/batvu-sim" },
     { "path": "./packages/batvu-horizon" },
-    { "path": "./packages/batvu-flywheel" }
+    { "path": "./packages/batvu-flywheel" },
+    { "path": "./packages/batvu-field" },
+    { "path": "./packages/batvu-memory" }
   ]
 }

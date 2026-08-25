@@ -36,6 +36,7 @@
 // against the real Nyquist. A hard-coded 48 kHz would alias on the other route.
 
 import type { SonarConfig } from '@batvu/core';
+import { classifyEmission } from '@batvu/horizon/emission';
 
 export interface CaptureConstraintReport {
   requested: MediaTrackConstraints;
@@ -48,6 +49,23 @@ export interface CaptureConstraintReport {
 export interface AudioSessionOptions {
   /** The transmit waveform, synthesised at the context's real sample rate. */
   waveform: Float32Array;
+  /**
+   * The config the waveform was synthesised from.
+   *
+   * Required, and required HERE, because this is where the sound reaches the
+   * speaker. A security review found that `classifyEmission` — the guard that
+   * exists precisely to stop a config from shrieking at a child or a dog — was
+   * called in exactly one place in the whole repository: the flywheel's
+   * simulated scorer. Nothing between a `SonarConfig` and `ctx.destination`
+   * consulted it. The guard was real, well tested, and guarding a simulation.
+   *
+   * Passing the config rather than a pre-computed verdict is deliberate. A
+   * verdict argument can be computed once and reused after the config changes
+   * — and the config DOES change at runtime: `fitConfigToRate` moves the sweep
+   * when the audio route comes up at 44.1 kHz instead of 48. A gate that can be
+   * satisfied with a stale answer is a gate you can walk around.
+   */
+  config: SonarConfig;
   /** Samples to capture per ping. */
   recordLen: number;
   /** Pings per second. */
@@ -225,6 +243,21 @@ export class AudioSession {
 
   /** Start emitting and delivering records. */
   start(options: AudioSessionOptions, onPing: (ping: Ping) => void): void {
+    // Checked before anything else, including whether a session is even open.
+    // Ordering is the point: "you have not opened an audio session" is a
+    // programming mistake, whereas "this config would be audible" is a safety
+    // one, and the safety answer must not be reachable only after the
+    // programming one has been satisfied.
+    //
+    // `deny` throws rather than warns. The caller turns a throw into a visible
+    // "could not start" and the phone stays silent, which is the correct
+    // outcome for a config that would be audible, clipped, aliased, or
+    // transmitting for more than a third of every second.
+    const emission = classifyEmission(options.config, options.pingRateHz);
+    if (emission.verdict === 'deny') {
+      throw new Error(`batvu: refusing to transmit — ${emission.reasons.join('; ')}`);
+    }
+
     const ctx = this.ctx;
     if (!ctx) throw new Error('batvu: open() the audio session first');
     this.onPing = onPing;

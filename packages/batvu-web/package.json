@@ -2,7 +2,7 @@
   "name": "@batvu/web",
   "version": "0.1.0",
   "private": true,
-  "description": "BatVu for iPhone — an iOS Safari app that emits ultrasonic chirps, listens for the room, and draws what a bat would hear.",
+  "description": "BatVu for iPhone \u2014 an iOS Safari app that emits ultrasonic chirps, listens for the room, and draws what a bat would hear.",
   "type": "module",
   "license": "MIT",
   "scripts": {
@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@batvu/core": "0.1.0",
-    "@batvu/sim": "0.1.0"
+    "@batvu/sim": "0.1.0",
+    "@batvu/horizon": "0.1.0"
   },
   "devDependencies": {
     "esbuild": "^0.24.0",
