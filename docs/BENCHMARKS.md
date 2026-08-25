@@ -1,6 +1,9 @@
 # Benchmarks
 
-`npm run bench` — results land in `bench/results/latest.json`.
+`npm run bench` — results land in `bench/results/latest.json`, and
+`npm run artifacts` copies them to
+[`artifacts/bench/latest.json`](../artifacts/bench/latest.json) with a SHA-256,
+so a number quoted anywhere in this repository has a file behind it.
 
 ## The number that matters
 
@@ -28,8 +31,8 @@ The first run said something surprising.
 | map: occupancy integrate (JS) | 8.01 ms | **0.27 ms** | 29× |
 | map: state signature (JS) | 7.15 ms | **0.000 ms** | O(n) → O(1) |
 | map: occupied count (JS) | 3.90 ms | **0.000 ms** | O(n) → O(1) |
-| **END TO END: one ping** | **8.99 ms** | **1.35 ms** | **6.7×** |
-| headroom in a 66.7 ms interval | 7× | **49×** | |
+| **END TO END: one ping** | **8.99 ms** | **1.28 ms** | **7.0×** |
+| headroom in a 66.7 ms interval | 7× | **52×** | |
 
 The sonar was never the problem. The DSP — a 32k-point FFT pair, a matched
 filter and a CFAR pass — cost 1 ms. The occupancy map cost **eight times that**,
@@ -49,12 +52,32 @@ scratch. That is a real trade — an order-independent sum collides at roughly
 still track the O(n) truth exactly, including across the clamp boundaries where
 a naive increment double-counts.
 
+## The integration stages, and where each of them belongs
+
+Two of these are per-ping work and one is emphatically not. Measuring all three
+in the same report is what turns that from an assertion into a fact.
+
+| stage | cost | % of a ping | where it runs |
+|---|---:|---:|---|
+| `field: encode one ping to .ultrasonic.jsonl` | 0.211 ms | 0.3% | per ping, alongside the DSP |
+| `field: project one ping to a FieldEvent` | 0.013 ms | 0.0% | per ping |
+| `memory: room signature over the whole grid` | **8.166 ms** | **12.2%** | **end of scan only** |
+
+The room signature is a full 1.7 M-voxel pass. On a phone that is 25–40 ms, so
+running it per ping would make it the most expensive thing on the main thread by
+a wide margin — and there is nothing useful to say about a room from a single
+ping anyway. `roomSignature`'s own doc comment says so, and this row is why.
+
+Encoding, by contrast, is cheap enough to run inside the ping loop with two
+orders of magnitude to spare, which is what makes recording a live scan to
+RuField's wire a real option rather than a batch job.
+
 ## What is still slow, and why that is fine
 
 | stage | cost | who pays |
 |---|---:|---|
-| `map: occupied points` | 5.4 ms | only a point-cloud renderer, never the per-frame path — the app draws arcs from the detection list |
-| `sim: render one record` | 5.0 ms | only CI and the flywheel; a phone never runs the simulator |
+| `map: occupied points` | 4.2 ms | only a point-cloud renderer, never the per-frame path — the app draws arcs from the detection list |
+| `sim: render one record` | 4.3 ms | only CI and the flywheel; a phone never runs the simulator |
 
 Both are full-grid or full-scene work with no per-ping caller. Optimising them
 would buy nothing a user could feel.
@@ -62,8 +85,8 @@ would buy nothing a user could feel.
 ## Reading the output
 
 ```
-  dsp: compress + detect (wasm)         1.056 ms   p95   1.263 ms     1.6% of a ping
-  END TO END: one ping, DSP + map       1.352 ms   p95   1.629 ms     2.0% of a ping
+  dsp: compress + detect (wasm)         0.986 ms   p95   1.104 ms     1.5% of a ping
+  END TO END: one ping, DSP + map       1.282 ms   p95   1.560 ms     1.9% of a ping
 ```
 
 `p95` is there because the median says what a typical ping costs and p95 says
@@ -83,3 +106,10 @@ regression is a red build rather than a slow phone six months later.
   `+simd128` is available and untried; the headroom means it has not been needed.
 - Nothing here measures battery or thermal behaviour, which for a sustained scan
   may bind well before compute does.
+- **None of this measures the thing that actually broke.**
+  [ADR-021](adr/ADR-021-which-blast.md) documents a correctness bug on the live
+  path that every benchmark, every test and the whole end-to-end run were
+  structurally incapable of exhibiting, because the simulator renders one
+  transmit blast per record and a real microphone ring contains four. A green
+  benchmark says the work fits in the budget. It says nothing about whether the
+  work is right.

@@ -59,12 +59,13 @@ on a desktop — that runs the identical pipeline against a simulated room and
 needs no microphone at all.
 
 ```bash
-npm run test:rust   # 88 Rust tests, including a never-panics fuzz suite
-npm test            # 106 TypeScript tests
+npm run test:rust   # 90 Rust tests, including a never-panics fuzz suite
+npm test            # 146 TypeScript tests
 npm run e2e         # the real app, in a real browser, against a simulated room
 npm run bench       # per-stage timings against the pulse-repetition budget
 npm run demo        # a scan session driven by horizon's halt controller
 npm run flywheel    # evolve the sonar policy and verify the receipts
+npm run artifacts   # rebuild artifacts/ — the evidence behind every number here
 ```
 
 ---
@@ -124,7 +125,9 @@ stop changing the map mean this vantage point is exhausted.
 | `@batvu/sim` | 3-D rooms, beam-cone ray casting, end-to-end scan synthesis — the ground truth |
 | `@batvu/horizon` | Scan-session halt control, checkpoints, and the emission guard |
 | `@batvu/flywheel` | Policy evolution with signed, replayable promotion receipts |
-| `@batvu/web` | The iPhone app. 25 KB of JavaScript, no framework |
+| `@batvu/field` | The scan on RuField MFS's wire — `.ultrasonic.jsonl`, and the `FieldEvent` it projects to |
+| `@batvu/memory` | A heading-invariant room signature, and the store that answers "have I been here before?" |
+| `@batvu/web` | The iPhone app. 28 KB of JavaScript, no framework |
 
 Everything but the transducer runs on a Linux CI box, which is the point of
 choosing a browser over a native app
@@ -167,35 +170,133 @@ gen 2  primary 0.2420  +0.0983   anchor 0.3398   <- never optimised against
 
 ---
 
+## Where it plugs in
+
+BatVu is part of the **ruview** spatial-intelligence effort, which means the
+interesting question is not what it measures but what else can read it.
+
+**[RuField MFS](https://github.com/ruvnet/rufield)** is the schema several
+ruvnet projects use for camera-free sensing. Its modality registry has had
+`Ultrasonic` at code 7 since v0.1 with nothing implementing it. `@batvu/field`
+writes `.ultrasonic.jsonl`; `UltrasonicReplayAdapter`
+([rufield#11](https://github.com/ruvnet/rufield/pull/11)) parses it, signs it,
+and hands `FieldEvent`s to a fusion engine. The same recording is a test fixture
+in both repositories, so drift between the two fails a build rather than an
+ingest.
+
+Three decisions in that seam are worth stating, because each looked different
+before the other side's source was read
+([ADR-018](docs/adr/ADR-018-rufield-wire.md)):
+
+- **The tensor is `[Range]`, not `[Angle, Range]`.** `FieldAxis::Angle` means
+  angle-of-arrival bins — the output of an array that measured direction. One
+  microphone measures none. The beam is a *pose*, and it rides in the sensor
+  descriptor where a pose belongs.
+- **BatVu writes a file; it does not POST.** RuView's `/api/field` and
+  `/ws/field` are both GET — it produces field events, it does not ingest them.
+  There was no endpoint to build a client for.
+- **BatVu does not sign.** The signature is over serde's byte-exact rendering of
+  a Rust struct. Reproducing that from JavaScript is the one part of this
+  integration that could pass every test and still fail on a phone.
+
+And an honest negative result, asserted in a test rather than papered over:
+**with RuField's shipped rules, a BatVu scan produces no inferences at all.**
+The adapter could set `presence` and light up the `person_present` rule. It does
+not, because an echo at 2.4 m is a surface and one transducer pair cannot tell a
+person from a coat on the back of a chair. RuField v0.1 has no predicate for
+static geometry, and saying so is worth more than a demo that works for a reason
+that is not true.
+
+---
+
+## Recognising a room, since it cannot localise in one
+
+Orientation-only pose ([ADR-011](docs/adr/ADR-011-orientation-only-pose.md))
+means the map is built in a frame whose azimuth zero is wherever the phone
+happened to be pointing when the scan started. "I am at (3.2, 1.1) on the floor
+plan" is not a sentence this sensor can produce, ever.
+
+"I have been here before" is a different question, and it needs no global frame.
+The unknown is *exactly* SO(2) about gravity — the accelerometer pins the other
+two axes — so a descriptor invariant under that and nothing more discards no
+measurement the phone already paid for. Bin the map into 8 elevation bands × 64
+azimuth bins; a heading offset is a circular shift; the DFT shift theorem says a
+circular shift multiplies each coefficient by a unit complex number, so the
+**magnitude** spectrum is unchanged. Exactly.
+
+```
+worst same-room similarity, over a full turn of heading   0.9999
+best different-room pair (corridor vs living room)        0.8623
+                                              separation  0.1376
+```
+
+Measured on four simulator rooms
+([`artifacts/memory/room-signature.json`](artifacts/memory/room-signature.json)).
+Four rooms is not a population, which is why `recognize` gates on the *margin*
+over the runner-up rather than on the similarity: every entry is non-negative,
+so cosine has a high floor and unrelated rooms score well above 0.5. A query
+that scores 0.96 against two stored places has been confused, not recognised.
+
+([ADR-019](docs/adr/ADR-019-room-memory.md) has the maths, and the list of
+things it cannot do — starting with the fact that it is not invariant to
+translation, so the recognisable unit is a *standing spot*, not a room.)
+
+---
+
 ## Performance
 
-One ping — compress, detect, and fold into the map — costs **1.35 ms** of a
+One ping — compress, detect, and fold into the map — costs **1.28 ms** of a
 66.7 ms budget. The interesting part is where it started: 8.99 ms, of which the
 DSP was 1.06 ms and the *map bookkeeping* was 7.8 ms, because reporting how much
 had changed rescanned 1.7 million voxels twice per ping.
 
 | | before | after |
 |---|---:|---:|
-| occupancy integrate | 8.01 ms | 0.27 ms |
+| occupancy integrate | 8.01 ms | 0.25 ms |
 | map signature | 7.15 ms | 0.000 ms |
-| **one ping, end to end** | **8.99 ms** | **1.35 ms** |
-| headroom in a 66.7 ms interval | 7× | **49×** |
+| **one ping, end to end** | **8.99 ms** | **1.28 ms** |
+| headroom in a 66.7 ms interval | 7× | **52×** |
+
+The two integration stages are measured in the same report, and they answer
+opposite questions:
+
+| | | |
+|---|---:|---|
+| encode one ping to `.ultrasonic.jsonl` | 0.21 ms | fits alongside the DSP |
+| project one ping to a `FieldEvent` | 0.01 ms | negligible |
+| room signature over the whole grid | **8.17 ms** | **12% of a ping — end of scan only** |
+
+That last row is why the room signature runs when a scan finishes and never
+inside `pingWithBeam`. At fifteen pings a second on a phone it would be the most
+expensive thing on the main thread — and there is nothing useful to say about a
+room from a single ping anyway. Measuring it makes that a fact rather than an
+assertion.
 
 [BENCHMARKS.md](docs/BENCHMARKS.md) has the method and the caveats — these are
 desktop x86 numbers and the phone figures are extrapolated.
+[`artifacts/bench/latest.json`](artifacts/bench/latest.json) is the file they
+come from.
 
 ---
 
 ## Documentation
 
-- **[Architecture decisions](docs/adr/)** — 17 records. The five that were
+- **[Architecture decisions](docs/adr/)** — 21 records. The eight that were
   reversed mid-build are listed first, because in each case the first version
   looked right.
+- **[Security](docs/SECURITY.md)** — the threat model, and the three real defects
+  an adversarial review found: an emission guard that was not on the transmit
+  path, four NaN inputs that deleted checks rather than failing them, and a
+  time-origin search that let noise choose the pose tag.
 - **[Research dossier](docs/research/RESEARCH-DOSSIER.md)** — a seven-lens
   research swarm with an adversarial verification pass: 167 claims, 56 refuted or
   corrected before they reached the design. Where the dossier and the ADRs
   disagree, the ADR says which measurement settled it.
 - **[Benchmarks](docs/BENCHMARKS.md)**
+- **[`artifacts/`](artifacts/)** — the evidence. Every number quoted above has a
+  file that produced it, the command that wrote it, and a SHA-256 in
+  [`MANIFEST.json`](artifacts/MANIFEST.json). It is committed, so a regression is
+  a diff rather than a memory.
 
 ---
 
@@ -211,10 +312,32 @@ All three require leaving the browser, and all three are out of scope
 - **ARKit visual-inertial pose** — six degrees of freedom, so you could walk
   around the room instead of standing still.
 
-Nearer-term, inside the browser: sub-sample fractional-delay blast cancellation
-(20–35 dB instead of the current ~10–20), walk detection that invalidates a scan
-rather than silently corrupting it, and a real-hardware measurement campaign to
-replace the extrapolated numbers.
+Nearer-term, inside the browser, and reordered by an adversarial review that
+disagreed with the previous ranking:
+
+1. **Keep the complex compressed profile.** It is computed and then thrown away
+   at the last line of the hot path — every stage downstream sees magnitudes
+   only. That one discard forecloses Doppler, moving-target indication, coherent
+   blast cancellation and micro-motion sensing, which is where every
+   high-performance phone-acoustic system of the last decade lives. Retaining it
+   costs no extra transform; the data is already in the buffers.
+2. **Shorten the record.** 284 ms of capture for a 29 ms analysis window exists
+   because of a 250 ms latency headroom that made sense for a one-shot
+   acquisition. A record just longer than one pulse repetition interval bounds
+   the blast ambiguity ([ADR-021](docs/adr/ADR-021-which-blast.md)) to two
+   candidates *and* cuts the FFT cost.
+3. **Fix the simulator's near-field dynamic range.** It gives the direct path a
+   flat gain with no spreading and uses `1/r` for walls where the image-source
+   model says `1/(2r)`, so it understates the blast-to-echo ratio by roughly
+   27 dB — the exact quantity blast cancellation exists to fight. Every
+   near-field number in this repository is measured against that, and one of the
+   two bugs found this cycle came from depending on it.
+
+And still, above all of them: **a real-hardware measurement campaign.** Every
+number here is from a simulator that agrees with the physical model by
+construction, and [ADR-021](docs/adr/ADR-021-which-blast.md) is what that costs —
+a correctness bug that lived in the one failure mode the ground truth does not
+model.
 
 ---
 

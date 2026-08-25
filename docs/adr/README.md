@@ -23,6 +23,10 @@ what evidence overturned it — those are usually the useful part.
 | [015](ADR-015-simulator-as-ground-truth.md) | The simulator is the ground truth, and there is exactly one of it |
 | [016](ADR-016-submodules.md) | Vendor ruvnet/ultrasonic and ruvnet/metaharness as git submodules |
 | [017](ADR-017-render-arcs.md) | Draw arcs, never points |
+| [018](ADR-018-rufield-wire.md) | A scan on the RuField wire — a file in, a range axis, and no signature |
+| [019](ADR-019-room-memory.md) | Recognise a place instead of localising in one |
+| [020](ADR-020-guard-at-the-transmitter.md) | The emission guard belongs at the speaker, not at the config |
+| [021](ADR-021-which-blast.md) | Which blast — time from the most recent one, not the loudest |
 
 ## The ones that changed during the build
 
@@ -36,6 +40,9 @@ records worth reading first, because in each case the first version looked right
 | [010](ADR-010-inverse-sensor-model.md) | Cast N rays through the beam cone | Rays diverge past voxel spacing at range, leaving holes — including on the axis, since a Fibonacci spiral never samples its own pole |
 | [014](ADR-014-flywheel.md) | `primary` = occupied IoU | The deliberately *bad* policy beat the tuned one, by smearing occupancy across a 120° arc in a room where everything at wall-range is wall |
 | [014](ADR-014-flywheel.md) | `noopRate` = fraction of silent pings | It saturates at exactly 0, and the flywheel's strict promotion clause then freezes forever |
+| [019](ADR-019-room-memory.md) | The descriptor carried an elevation-mass block, and justified its invariance by bounding a phase error | `\|F_e[0]\|` *is* the band's mass, so eight of 128 dimensions were a copy — and the retained quantity is a magnitude, so the phase bound was about something the descriptor discards |
+| [020](ADR-020-guard-at-the-transmitter.md) | The emission guard was assumed to be on the transmit path | It was called in exactly one place: the flywheel's simulated scorer. `AudioSession.start()` played whatever it was handed |
+| [021](ADR-021-which-blast.md) | Time from the loudest arrival in the search span | On a continuous capture that span holds ~4 identical blasts, so noise chose between them — and the pose tag, not the range, is what it corrupted |
 
 ## Relationship to the research dossier
 
