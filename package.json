@@ -1,0 +1,9 @@
+{
+  "name": "batvu",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/sonar.test.mjs",
+    "bench": "node tests/bench.mjs"
+  }
+}

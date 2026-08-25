@@ -1,0 +1,6 @@
+[submodule "vendor/ultrasonic"]
+	path = vendor/ultrasonic
+	url = https://github.com/ruvnet/ultrasonic.git
+[submodule "vendor/metaharness"]
+	path = vendor/metaharness
+	url = https://github.com/ruvnet/metaharness.git
