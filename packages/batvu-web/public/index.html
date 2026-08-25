@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#05050a" />
+<meta name="description" content="BatVu — an iPhone that emits ultrasonic chirps and draws the room from the echoes." />
+<title>BatVu — see the room like a bat</title>
+<!-- Inline, so the page makes no favicon request at all. A missing favicon is
+     a 404 in every console and, on a phone, one more round trip before the
+     first paint. Concentric arcs: a ping going out, and what comes back. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2305050a'/%3E%3Cg fill='none' stroke='%237fd8ff' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M16 27a11 11 0 0 1 0-22' opacity='.35'/%3E%3Cpath d='M16 23a7 7 0 0 1 0-14' opacity='.6'/%3E%3Cpath d='M16 19a3 3 0 0 1 0-6'/%3E%3C/g%3E%3Ccircle cx='16' cy='16' r='2' fill='%23fac127'/%3E%3C/svg%3E" />
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%2305050a'/%3E%3Cg fill='none' stroke='%237fd8ff' stroke-width='2'%3E%3Cpath d='M16 27a11 11 0 0 1 0-22' opacity='.35'/%3E%3Cpath d='M16 23a7 7 0 0 1 0-14' opacity='.6'/%3E%3Cpath d='M16 19a3 3 0 0 1 0-6'/%3E%3C/g%3E%3Ccircle cx='16' cy='16' r='2' fill='%23fac127'/%3E%3C/svg%3E" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<main>
+  <header>
+    <h1>Bat<span>Vu</span></h1>
+    <p id="status">Loading…</p>
+  </header>
+
+  <section class="scope">
+    <canvas id="ppi" aria-label="Plan position display of echoes around you"></canvas>
+    <canvas id="coverage" aria-label="Which bearings you have swept"></canvas>
+    <p class="caption legend">
+      Bearings swept. Turning on the spot fills this quickly while covering only
+      a thin band of the sphere — tilt up and down too, or the ceiling and floor
+      stay unmapped.
+    </p>
+  </section>
+
+  <section class="controls">
+    <button id="start" type="button">Listen</button>
+    <button id="demo" type="button">Demo room</button>
+    <button id="stop" type="button" disabled>Stop</button>
+  </section>
+
+  <p id="stats" class="stats">—</p>
+
+  <section class="ascope-wrap">
+    <h2>Last ping</h2>
+    <canvas id="ascope" aria-label="Echo strength against range for the last ping"></canvas>
+    <p class="caption">
+      Amplitude in dB against range. This is the evidence, not the conclusion —
+      when the map looks wrong, the noise floor and the detection margin are here.
+    </p>
+  </section>
+
+  <ul id="warnings" class="warnings" aria-live="polite"></ul>
+
+  <section class="explainer">
+    <h2>What you are looking at</h2>
+    <p>
+      Your phone has one speaker and one microphone, so it measures
+      <strong>range</strong> — and nothing else. An echo at 2.4&nbsp;m is
+      somewhere on a cone tens of degrees wide, which is why every return is
+      drawn as an <strong>arc</strong> rather than a dot. Range is accurate to a
+      few centimetres; bearing at 3&nbsp;m is blurry by more than a metre.
+    </p>
+    <p>
+      That is also why you have to sweep. One ping cannot locate anything. The
+      map sharpens where arcs from different directions cross, which is roughly
+      what a bat gets from turning its head — and the red disc in the middle is
+      the blind zone, where the outgoing pulse drowns everything out.
+    </p>
+    <p class="honest">
+      Honest limits: about 0.6&nbsp;m to 4–5&nbsp;m against hard flat surfaces,
+      less against soft ones. This is a short-range acoustic scanner, not a depth
+      camera, and it will not see a black cat on a carpet.
+    </p>
+  </section>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

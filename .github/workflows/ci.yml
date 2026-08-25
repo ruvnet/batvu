@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # vendor/metaharness is not decoration: the published
+          # @metaharness/horizon package ships `dist` but not its `wasm/`
+          # artifact, so the scan-session control core is built from this
+          # submodule. Without it, `npm run build:wasm` warns and the horizon
+          # tests cannot run.
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install the wasm target
+        run: rustup target add wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: npm ci
+
+      - name: Rust — format
+        run: cargo fmt --manifest-path crates/batvu-dsp/Cargo.toml --all -- --check
+
+      - name: Rust — clippy
+        run: cargo clippy --manifest-path crates/batvu-dsp/Cargo.toml --all-targets -- -D warnings
+
+      - name: Rust — tests and fuzz
+        run: npm run test:rust
+
+      - name: Build wasm and the TypeScript packages
+        run: npm run build
+
+      - name: TypeScript — tests
+        run: npm test
+
+      - name: End-to-end — the real app in a real browser
+        run: npm run e2e
+        env:
+          # Chromium is pre-installed on the runner image via Playwright.
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '0'
+
+      - name: Benchmarks
+        run: npm run bench
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-artifacts
+          path: |
+            e2e/artifacts/
+            bench/results/
+          if-no-files-found: ignore

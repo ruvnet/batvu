@@ -151,9 +151,23 @@ function describeConfigProblem(core: BatVuCore, config: Record<string, unknown>)
 
 async function resolveBytes(source?: WasmSource): Promise<ArrayBuffer | Uint8Array> {
   if (source === undefined) {
-    // Node-only fallback. The dynamic import keeps `node:fs` out of any browser
-    // bundle: a bundler sees no static dependency and this branch never runs
-    // when the caller supplies bytes, which browser callers always do.
+    // Node-only fallback.
+    //
+    // Checked BEFORE the import so a browser caller who forgot the URL gets a
+    // sentence instead of a module-resolution failure three frames down. The
+    // import itself is dynamic so a bundler can leave it unevaluated (the web
+    // build marks `node:*` external); this guard is what makes that safe rather
+    // than merely quiet.
+    const isNode =
+      typeof process !== 'undefined' &&
+      (process as { versions?: { node?: string } }).versions?.node !== undefined;
+    if (!isNode) {
+      throw new Error(
+        'batvu: BatVuCore.load() needs the wasm bytes or a URL in a browser — ' +
+          'the Node filesystem fallback is not available here. ' +
+          "Try BatVuCore.load('wasm/batvu_dsp.wasm').",
+      );
+    }
     const [{ readFile }, { fileURLToPath }, { dirname, join }] = await Promise.all([
       import('node:fs/promises'),
       import('node:url'),
