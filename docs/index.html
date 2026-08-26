@@ -1,0 +1,1797 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="How a phone maps a dark room with a sound you cannot hear — and the four defects that hid behind green tests.">
+<meta name="color-scheme" content="dark">
+<link rel="canonical" href="https://ruvnet.github.io/batvu/">
+<meta property="og:type" content="article">
+<meta property="og:title" content="How a Phone Sees in the Dark">
+<meta property="og:description" content="How a phone maps a dark room with a sound you cannot hear — and the four defects that hid behind green tests.">
+<meta property="og:url" content="https://ruvnet.github.io/batvu/">
+<meta property="og:image" content="https://ruvnet.github.io/batvu/img/explainer-hero.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%F0%9F%A6%87</text></svg>">
+<title>How a Phone Sees in the Dark</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;800&family=IBM+Plex+Mono:wght@400;500&family=Spectral:ital,wght@0,300;0,400;0,600;1,300;1,400&display=swap">
+
+<style>
+  /* ══════════════════════════════════════════════════════════════
+     ONE COMMITTED WORLD: a city at three in the morning.
+     Sodium streetlight and rain on near-black. Two signal colours
+     that carry meaning rather than decoration — sodium where an
+     echo came back, floodlight blue where silence proved a space
+     empty — and one rationed rust for the things that were broken.
+     Single-theme by intent, so every colour is painted explicitly
+     and the page holds on either host ground.
+     ══════════════════════════════════════════════════════════════ */
+  :root {
+    --pitch:  #05060A;
+    --void:   #090B12;
+    --slab:   #101420;
+    --rim:    #1C2130;
+    --rim-hi: #2A3145;
+
+    --bone:   #F2EFE6;
+    --chalk:  #A6A49C;
+    --dust:   #66645E;
+
+    --sodium: #F0A23C;
+    --sodium-glow: rgba(240, 162, 60, 0.13);
+    --flood:  #5B8FC9;
+    --flood-glow:  rgba(91, 143, 201, 0.12);
+    --fault:  #C4553A;
+
+    --ff-display: "Big Shoulders Display", "Oswald", "Haettenschweiler", Impact, sans-serif;
+    --ff-body: "Spectral", Georgia, "Times New Roman", serif;
+    --ff-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+
+    --col: 34rem;
+    --wide: 58rem;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    background: var(--pitch);
+    color: var(--chalk);
+    font-family: var(--ff-body);
+    font-weight: 300;
+    font-size: 1.075rem;
+    line-height: 1.72;
+    margin: 0;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  p { margin: 0; }
+  strong { color: var(--bone); font-weight: 600; }
+  em { color: var(--bone); font-style: italic; }
+  a { color: var(--sodium); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+  a:hover { color: var(--bone); }
+  a:focus-visible { outline: 2px solid var(--sodium); outline-offset: 4px; border-radius: 1px; }
+
+  .col   { max-width: var(--col);  margin-inline: auto; padding-inline: 1.5rem; }
+  .col-w { max-width: var(--wide); margin-inline: auto; padding-inline: 1.5rem; }
+  .stack { display: flex; flex-direction: column; }
+  .stack > * { margin: 0; }
+  .g-xs { gap: 0.5rem; } .g-sm { gap: 0.8rem; } .g-md { gap: 1.4rem; } .g-lg { gap: 2.6rem; }
+
+  h1, h2, h3 {
+    font-family: var(--ff-display);
+    color: var(--bone);
+    font-weight: 800;
+    line-height: 0.94;
+    letter-spacing: 0.005em;
+    text-transform: uppercase;
+    text-wrap: balance;
+    margin: 0;
+  }
+  h2 { font-size: clamp(2.6rem, 7.5vw, 4.6rem); }
+
+  .eyebrow {
+    font-family: var(--ff-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    color: var(--dust);
+  }
+
+  /* ── chapter stamp: the numbering is the ping's own path ───── */
+  .chapter { display: flex; align-items: baseline; gap: 0.9rem; }
+  .chapter .num {
+    font-family: var(--ff-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.2em;
+    color: var(--sodium);
+    flex: none;
+  }
+  .chapter .rule { flex: 1; height: 1px; background: var(--rim); }
+  .chapter .of {
+    font-family: var(--ff-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.18em;
+    color: var(--dust);
+    flex: none;
+  }
+
+  /* ── depth rail ────────────────────────────────────────────── */
+  #rail {
+    position: fixed;
+    left: 1.4rem;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 40;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.7rem;
+    pointer-events: none;
+  }
+  @media (min-width: 78rem) { #rail { display: flex; } }
+  #rail .track { width: 1px; height: 34svh; background: var(--rim); position: relative; }
+  #rail .fill { position: absolute; inset: 0 0 auto 0; background: var(--sodium); width: 1px; height: 0; }
+  #rail .cap { font-family: var(--ff-mono); font-size: 0.58rem; letter-spacing: 0.16em; color: var(--dust); writing-mode: vertical-rl; }
+  #rail .pct { font-family: var(--ff-mono); font-size: 0.6rem; color: var(--sodium); font-variant-numeric: tabular-nums; }
+
+  /* ── cold open ─────────────────────────────────────────────── */
+  #open {
+    min-height: 100svh;
+    display: grid;
+    place-items: center;
+    position: relative;
+    text-align: center;
+    padding: 2rem 1.5rem;
+    isolation: isolate;
+  }
+  #open-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: -1; }
+  .open-inner { will-change: transform, opacity; display: flex; flex-direction: column; gap: 1.5rem; align-items: center; max-width: 44rem; }
+  #open h1 {
+    font-size: clamp(3.4rem, 15vw, 10rem);
+    letter-spacing: 0.002em;
+    line-height: 0.86;
+  }
+  #open h1 .lo { display: block; color: var(--chalk); font-weight: 500; font-size: 0.42em; letter-spacing: 0.16em; margin-bottom: 0.5em; }
+  #open h1 .hi { color: var(--sodium); }
+  .open-sub { font-size: 1.16rem; color: var(--chalk); max-width: 27rem; line-height: 1.6; }
+
+  .scroll-cue {
+    font-family: var(--ff-mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.26em;
+    text-transform: uppercase;
+    color: var(--dust);
+    position: absolute;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .scroll-cue { animation: breathe 3.4s ease-in-out infinite; }
+    @keyframes breathe { 0%,100% { opacity: 0.3; } 50% { opacity: 0.95; } }
+    #open h1 .lo, #open h1 .hi, #open h1 .mid, .open-sub, #open .eyebrow {
+      opacity: 0; animation: rise 1.05s cubic-bezier(.2,.75,.3,1) forwards;
+    }
+    #open .eyebrow  { animation-delay: 0.15s; }
+    #open h1 .lo    { animation-delay: 0.35s; }
+    #open h1 .mid   { animation-delay: 0.5s; }
+    #open h1 .hi    { animation-delay: 0.68s; }
+    .open-sub       { animation-delay: 0.95s; }
+    @keyframes rise { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: none; } }
+  }
+
+  /* ── reveal on scroll ──────────────────────────────────────────
+     Siblings inside one .stack carry an index so a section cascades in
+     rather than appearing all at once — the delay is capped so a long
+     list never leaves the reader waiting on the last line. */
+  .reveal {
+    opacity: 0;
+    transform: translateY(22px);
+    transition:
+      opacity 0.7s cubic-bezier(.22,.61,.36,1) var(--rd, 0ms),
+      transform 0.9s cubic-bezier(.16,.84,.34,1) var(--rd, 0ms);
+    will-change: opacity, transform;
+  }
+  .reveal.in { opacity: 1; transform: none; }
+  .reveal.in.done { will-change: auto; }
+  @media (prefers-reduced-motion: reduce) {
+    .reveal { opacity: 1; transform: none; transition: none; }
+  }
+
+  /* ── narrative sections ────────────────────────────────────── */
+  section { padding: 7.5rem 0; }
+  .lede { font-size: 1.28rem; line-height: 1.55; color: var(--bone); font-weight: 300; }
+  .aside {
+    font-family: var(--ff-mono);
+    font-size: 0.8rem;
+    line-height: 1.7;
+    color: var(--dust);
+    border-left: 1px solid var(--rim-hi);
+    padding-left: 1.15rem;
+  }
+  .pull {
+    font-family: var(--ff-body);
+    font-size: clamp(1.5rem, 4vw, 2.15rem);
+    font-weight: 300;
+    font-style: italic;
+    line-height: 1.3;
+    color: var(--bone);
+    text-wrap: balance;
+    padding-block: 0.6rem;
+  }
+
+  figure { margin: 0; display: flex; flex-direction: column; gap: 0.95rem; }
+  figcaption { font-family: var(--ff-mono); font-size: 0.74rem; line-height: 1.66; color: var(--dust); }
+  svg, canvas { display: block; max-width: 100%; }
+
+  /* ── scroll scenes ─────────────────────────────────────────── */
+  .scene { position: relative; padding: 0; }
+  .stage {
+    position: sticky;
+    top: 0;
+    height: 100svh;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    overflow: hidden;
+    padding: 0 1.25rem;
+  }
+  .stage canvas { width: 100%; height: auto; aspect-ratio: 10 / 11; }
+  .stage.square canvas { aspect-ratio: 1 / 1; }
+  .steps { position: relative; z-index: 2; margin-top: -100svh; }
+  .step { min-height: 100svh; display: grid; align-items: center; padding: 0 1.5rem; }
+  .step-card {
+    max-width: 24rem;
+    background: rgba(5, 6, 10, 0.94);
+    border: 1px solid var(--rim);
+    border-left: 2px solid var(--rim-hi);
+    padding: 1.5rem 1.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    opacity: 0.16;
+    transform: translateY(10px) scale(0.988);
+    transform-origin: left center;
+    transition:
+      opacity 0.55s cubic-bezier(.22,.61,.36,1),
+      transform 0.66s cubic-bezier(.16,.84,.34,1),
+      border-left-color 0.55s ease;
+    backdrop-filter: blur(7px);
+  }
+  .step.active .step-card { opacity: 1; transform: none; }
+  .step.active .step-card.on-sodium { border-left-color: var(--sodium); }
+  .step.active .step-card.on-flood  { border-left-color: var(--flood); }
+  .step.active .step-card.on-fault  { border-left-color: var(--fault); }
+  @media (prefers-reduced-motion: reduce) {
+    .step-card { opacity: 1; transform: none; transition: none; }
+  }
+  .step-card h3 { font-size: 1.85rem; line-height: 0.98; }
+  .step-card p { font-size: 0.99rem; line-height: 1.62; }
+  .tag { font-family: var(--ff-mono); font-size: 0.62rem; letter-spacing: 0.2em; text-transform: uppercase; }
+  .t-sodium { color: var(--sodium); }
+  .t-flood  { color: var(--flood); }
+  .t-fault  { color: var(--fault); }
+  /* Narrow screens stack rather than overlay: the canvas takes the upper
+     half and the caption the lower, because a caption floating over a
+     390-pixel-wide plot hides the thing it is describing. */
+  @media (max-width: 61.99rem) {
+    .stage { align-content: start; padding-top: 6svh; }
+    .step { align-items: end; padding-bottom: 4.5svh; }
+    .step-card { max-width: 100%; }
+  }
+  @media (min-width: 62rem) {
+    .step { justify-items: start; padding-left: 6vw; }
+    .stage { justify-items: end; padding-right: 4vw; }
+    .stage canvas { max-width: min(60vw, 54rem); aspect-ratio: 16 / 10; }
+    .stage.square canvas { max-width: min(54vw, 80svh); aspect-ratio: 1 / 1; }
+  }
+
+  /* ── two-evidence key ──────────────────────────────────────── */
+  .key { display: grid; gap: 1px; background: var(--rim); border: 1px solid var(--rim); }
+  @media (min-width: 34rem) { .key { grid-template-columns: 1fr 1fr; } }
+  .key > div { background: var(--slab); padding: 1.3rem 1.35rem; display: flex; flex-direction: column; gap: 0.5rem; }
+  .key .swatch { width: 2.8rem; height: 0.3rem; }
+  .key h4 { font-family: var(--ff-display); font-size: 1.35rem; text-transform: uppercase; color: var(--bone); margin: 0; line-height: 1; font-weight: 700; }
+  .key p { font-size: 0.93rem; line-height: 1.6; }
+
+  /* ── ledgers ───────────────────────────────────────────────── */
+  .ledger { display: flex; flex-direction: column; gap: 1px; background: var(--rim); border: 1px solid var(--rim); }
+  .row { background: var(--slab); padding: 1.45rem 1.55rem; display: flex; flex-direction: column; gap: 0.65rem; border-left: 2px solid transparent; }
+  .row.fault { border-left-color: var(--fault); }
+  .row.sodium { border-left-color: var(--sodium); }
+  .row h4 { font-family: var(--ff-display); font-size: 1.5rem; font-weight: 700; text-transform: uppercase; color: var(--bone); margin: 0; line-height: 1; }
+  .row p { font-size: 0.98rem; }
+
+  /* ── numbers ───────────────────────────────────────────────── */
+  .figs { display: grid; gap: 1px; background: var(--rim); border: 1px solid var(--rim); grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); }
+  .figs > div { background: var(--slab); padding: 1.15rem 1.25rem; display: flex; flex-direction: column; gap: 0.35rem; }
+  .figs b { font-family: var(--ff-mono); font-weight: 500; font-size: 1.42rem; color: var(--bone); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .figs > div.hot b { color: var(--sodium); }
+  .figs span { font-family: var(--ff-mono); font-size: 0.62rem; letter-spacing: 0.13em; text-transform: uppercase; color: var(--dust); line-height: 1.45; }
+
+  /* ── before/after ──────────────────────────────────────────── */
+  .ba { width: 100%; border-collapse: collapse; font-family: var(--ff-mono); font-size: 0.84rem; }
+  .ba th, .ba td { padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--rim); text-align: right; font-variant-numeric: tabular-nums; }
+  .ba th:first-child, .ba td:first-child { text-align: left; font-family: var(--ff-body); font-size: 0.95rem; }
+  .ba thead th { color: var(--dust); font-size: 0.6rem; letter-spacing: 0.16em; text-transform: uppercase; font-weight: 400; }
+  .ba td.now { color: var(--sodium); }
+  .ba tbody tr:last-child td { border-bottom: none; }
+  .scroll-x { overflow-x: auto; }
+
+  footer { padding: 6rem 0 7.5rem; border-top: 1px solid var(--rim); }
+</style>
+</head>
+<body>
+
+
+<div id="rail" aria-hidden="true">
+  <p class="cap">Range gate</p>
+  <div class="track"><div class="fill" id="rail-fill"></div></div>
+  <p class="pct" id="rail-pct">0%</p>
+</div>
+
+<!-- ══════════════════════════ COLD OPEN ══════════════════════════ -->
+<header id="open">
+  <canvas id="open-canvas" aria-hidden="true"></canvas>
+  <div class="open-inner">
+    <p class="eyebrow">A phone, a room, and no light at all</p>
+    <h1>
+      <span class="lo">How a phone sees</span>
+      <span class="mid">In the</span>
+      <span class="hi">Dark</span>
+    </h1>
+    <p class="open-sub">
+      Not with a camera. With a sound you cannot hear, and the echo that comes
+      back out of the black.
+    </p>
+  </div>
+  <p class="scroll-cue">Descend</p>
+</header>
+
+<!-- ══════════════════════════ I ══════════════════════════ -->
+<section>
+  <div class="col stack g-md">
+    <div class="chapter reveal">
+      <span class="num">I</span><span class="rule"></span><span class="of">The oldest trick in the dark</span>
+    </div>
+    <h2 class="reveal">A bat does not see the room. It hears the shape of it.</h2>
+    <p class="lede reveal">
+      Shout, and wait. The sound leaves you, touches something, and comes back.
+      How long it took is how far away that something is &mdash; because sound
+      travels at a known, boring, dependable speed.
+    </p>
+    <p class="reveal">
+      About 343 metres a second in a warm room. So an echo that takes a fiftieth
+      of a second to return has been on a seven-metre round trip, and whatever
+      bounced it is three and a half metres away. That is the whole idea.
+      Everything after this is engineering, and the engineering is where it gets
+      difficult.
+    </p>
+  </div>
+
+  <div class="col-w stack g-md" style="margin-top: 3.5rem;">
+    <figure class="reveal">
+      <svg viewBox="0 0 640 210" role="img" aria-label="A pulse leaves a bat, spreads outward, strikes a wall and returns; the round trip divided by two is the distance.">
+        <g fill="none" stroke="#F0A23C" stroke-linecap="round">
+          <path d="M96 78 A 30 30 0 0 1 96 126" opacity="0.9" stroke-width="1.7"/>
+          <path d="M108 62 A 46 46 0 0 1 108 142" opacity="0.62" stroke-width="1.4"/>
+          <path d="M124 46 A 66 66 0 0 1 124 158" opacity="0.38" stroke-width="1.2"/>
+          <path d="M142 32 A 86 86 0 0 1 142 172" opacity="0.2" stroke-width="1"/>
+          <path d="M162 20 A 108 108 0 0 1 162 184" opacity="0.1" stroke-width="1"/>
+        </g>
+        <g fill="none" stroke="#5B8FC9" stroke-linecap="round">
+          <path d="M462 40 A 84 84 0 0 0 462 164" opacity="0.18" stroke-width="1"/>
+          <path d="M484 56 A 62 62 0 0 0 484 148" opacity="0.3" stroke-width="1.2"/>
+          <path d="M504 74 A 40 40 0 0 0 504 130" opacity="0.48" stroke-width="1.5"/>
+        </g>
+        <!-- an original mark, not a logo: a small winged silhouette -->
+        <path d="M60 102 C 65 88, 74 84, 80 93 C 82 86, 86 84, 88 91 C 90 84, 94 86, 96 93 C 103 84, 111 88, 116 102 C 107 97, 100 99, 96 105 C 92 112, 84 112, 80 105 C 76 99, 69 97, 60 102 Z"
+              fill="#F2EFE6" opacity="0.9"/>
+        <rect x="576" y="26" width="5" height="150" fill="#F2EFE6" opacity="0.42"/>
+        <g stroke="#2A3145" stroke-width="1">
+          <line x1="90" y1="192" x2="576" y2="192"/>
+          <line x1="90" y1="186" x2="90" y2="198"/>
+          <line x1="576" y1="186" x2="576" y2="198"/>
+        </g>
+        <text x="333" y="186" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="10.5" letter-spacing="1.4" fill="#66645E">OUT AND BACK &divide; 2</text>
+      </svg>
+      <figcaption>Out, and back. The only quantity ever measured is time.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ══════════════════════════ II ══════════════════════════ -->
+<section>
+  <div class="col stack g-md">
+    <div class="chapter reveal">
+      <span class="num">II</span><span class="rule"></span><span class="of">You are already carrying one</span>
+    </div>
+    <h2 class="reveal">A phone has both halves of a bat.</h2>
+    <p class="reveal">
+      There is a speaker at the bottom edge and a microphone beside it. A mouth
+      and an ear, a centimetre or two apart. Nothing else is required &mdash; no
+      attachment, no driver, no hardware that does not already sit in a billion
+      pockets.
+    </p>
+    <p class="reveal">
+      The pitch is chosen so that you never hear it: a sweep from
+      <strong>17,500 to 20,500 cycles per second</strong>, sitting just above
+      where adult hearing gives out. It is the acoustic equivalent of
+      ultraviolet &mdash; right at the edge of the window, on the far side of it.
+    </p>
+    <p class="aside reveal">
+      Just above <em>adult</em> hearing. Children hear higher than you do; dogs
+      and cats hear higher still. That is not a footnote to bury at the bottom
+      of a page. It is the first constraint the entire design answers to, and
+      chapter VIII is what was built because of it.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════ III — SCENE: THE SQUEEZE ══════════════════════════ -->
+<section class="scene" id="sc-squeeze" aria-label="A buried echo being compressed into a single sharp spike">
+  <div class="stage">
+    <canvas id="cv-squeeze" width="1000" height="620" role="img"
+            aria-label="Top: a faint smeared chirp buried in microphone noise. Bottom: the same energy after matched filtering, gathered into one tall narrow spike about fifteen times higher."></canvas>
+  </div>
+  <div class="steps">
+    <div class="step" data-scene-step="0">
+      <div class="step-card on-sodium">
+        <p class="tag t-sodium">Chapter III &middot; The problem with being polite</p>
+        <h3>A bat can shout. A phone cannot.</h3>
+        <p>
+          A hunting bat emits something close to a jet engine at one metre. It
+          simply overwhelms the problem with volume. A phone speaker, held to a
+          level that will not distress every animal in the building, is roughly a
+          thousand times quieter in energy.
+        </p>
+      </div>
+    </div>
+    <div class="step" data-scene-step="1">
+      <div class="step-card on-sodium">
+        <p class="tag t-sodium">What actually comes back</p>
+        <h3>The echo arrives underneath the noise.</h3>
+        <p>
+          This is the honest picture: a faint smear, spread thin across five
+          thousandths of a second, sitting at or below the hiss of the microphone
+          itself. Nothing in that trace looks like an object in a room.
+        </p>
+      </div>
+    </div>
+    <div class="step" data-scene-step="2">
+      <div class="step-card on-sodium">
+        <p class="tag t-sodium">Hum, then squeeze</p>
+        <h3>So don't shout once. Hum, and fold it up.</h3>
+        <p>
+          The sound sent out is a <em>sweep</em> &mdash; a tone sliding upward in
+          pitch. Because the pitch differs at every instant, every slice of the
+          returning echo is stamped with the moment it left.
+        </p>
+      </div>
+    </div>
+    <div class="step" data-scene-step="3">
+      <div class="step-card on-sodium">
+        <p class="tag t-sodium">11.8 dB, from arithmetic</p>
+        <h3>All of it piles into one instant.</h3>
+        <p>
+          Line the echo up against a copy of what was sent, and the spread-out
+          energy collapses into a single spike about <strong>fifteen times</strong>
+          taller than the smear it came from. Loudness the speaker was never able
+          to produce, recovered afterwards by arithmetic.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ IV ══════════════════════════ -->
+<section>
+  <div class="col stack g-md">
+    <div class="chapter reveal">
+      <span class="num">IV</span><span class="rule"></span><span class="of">A stopwatch with no starting gun</span>
+    </div>
+    <h2 class="reveal">Nobody will tell it when the sound left.</h2>
+    <p class="reveal">
+      Timing an echo means knowing exactly when you started. A phone browser will
+      not say. It hands audio to the operating system, which hands it to the
+      hardware, and somewhere in that chain sits a delay it can only estimate.
+      Ten thousandths of a second of uncertainty is <strong>1.7 metres</strong>
+      of error &mdash; enough to put a wall in the middle of the room.
+    </p>
+    <p class="reveal">
+      The way out is almost funny. Some of the outgoing sound leaks straight
+      across the phone's case from speaker to microphone, a few centimetres,
+      arriving long before any real echo. That leak is normally a nuisance: it is
+      deafeningly loud and it smothers anything close by.
+    </p>
+    <p class="pull reveal">
+      So stop treating it as noise, and start the stopwatch on it. Whatever the
+      delay was, it happened to the leak too &mdash; and cancels out exactly.
+    </p>
+    <p class="aside reveal">
+      Tested by deliberately injecting delays from zero up to a fifth of a
+      second. The reported distances moved by less than a centimetre. The
+      loudest problem in the system turned out to be its most useful signal.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════ V — SCENE: FOUR IDENTICAL SHOUTS ══════════════════════════ -->
+<section class="scene" id="sc-comb" aria-label="Choosing which of several identical outgoing pulses started the stopwatch">
+  <div class="stage">
+    <canvas id="cv-comb" width="1000" height="560" role="img"
+            aria-label="A recorded slice containing four identical outgoing pulses evenly spaced in time, each with a small echo behind it. Picking the loudest selects the wrong one; stepping backwards in whole pulse intervals from the strongest arrival selects the right one."></canvas>
+  </div>
+  <div class="steps">
+    <div class="step" data-scene-step="0">
+      <div class="step-card on-fault">
+        <p class="tag t-fault">Chapter V &middot; The trap in the starting gun</p>
+        <h3>There is never just one shout in the recording.</h3>
+        <p>
+          A live microphone records continuously. The slice handed over for
+          analysis holds about <strong>four</strong> previous outgoing pulses
+          &mdash; identical sounds, evenly spaced, each with its own faint echo
+          trailing behind it.
+        </p>
+      </div>
+    </div>
+    <div class="step" data-scene-step="1">
+      <div class="step-card on-fault">
+        <p class="tag t-fault">Picking at random with a straight face</p>
+        <h3>The software chose the loudest one.</h3>
+        <p>
+          Which sounds reasonable until you notice they are all the same sound.
+          Whichever happens to be loudest is decided by noise, by how the phone
+          was tilted, by nothing meaningful. It picked a different pulse each
+          time and never reported a doubt.
+        </p>
+      </div>
+    </div>
+    <div class="step" data-scene-step="2">
+      <div class="step-card on-fault">
+        <p class="tag t-fault">The distances stayed right</p>
+        <h3>What broke was the direction.</h3>
+        <p>
+          An echo measured from a pulse three ticks old, filed under where the
+          phone is pointing <em>now</em>. And that is the one error a map cannot
+          wash out: more scanning makes a wrong wall
+          <strong>more</strong> convincing, not less.
+        </p>
+      </div>
+    </div>
+    <div class="step" data-scene-step="3">
+      <div class="step-card on-sodium">
+        <p class="tag t-sodium">The fix, and why it is better than the bug</p>
+        <h3>Count backwards in whole ticks.</h3>
+        <p>
+          The pulses go out on a metronome. So anchor on the strongest arrival,
+          then step backwards in exact metronome intervals until you reach the
+          most recent one. No amplitude is ever compared, which means noise gets
+          no vote at all.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ VI — SCENE: THE MAP ══════════════════════════ -->
+<section class="scene" id="sc-map" aria-label="A room map assembling from many pings">
+  <div class="stage square">
+    <canvas id="cv-map" width="900" height="900" role="img"
+            aria-label="A room map assembling: one wide arc, then several arcs crossing, then a full sweep resolving walls, then cones of confirmed empty space carving out a doorway."></canvas>
+  </div>
+
+  <div class="steps">
+    <div class="step" data-map-step="0">
+      <div class="step-card on-sodium">
+        <p class="tag t-sodium">Chapter VI &middot; One ping</p>
+        <h3>An echo is not a point.</h3>
+        <p>
+          The phone hears something 2.4 metres away. It has no idea
+          <em>where</em>. With one microphone there is no direction in the
+          measurement at all &mdash; only the fact that the phone happened to be
+          pointed roughly this way.
+        </p>
+      </div>
+    </div>
+    <div class="step" data-map-step="1">
+      <div class="step-card on-sodium">
+        <p class="tag t-sodium">Sharp one way, blurred the other</p>
+        <h3>So draw it as an arc.</h3>
+        <p>
+          Distance is known to a few centimetres. Direction is blurred by more
+          than a metre at that range &mdash; about a hundred times worse. A dot
+          would be a lie about which of the two the sensor actually measured.
+        </p>
+      </div>
+    </div>
+    <div class="step" data-map-step="2">
+      <div class="step-card on-sodium">
+        <p class="tag t-sodium">Sweep the room</p>
+        <h3>Arcs from different angles cross.</h3>
+        <p>
+          Turn on the spot, fifteen pings a second. Where arcs from different
+          directions overlap, the same surface has been seen twice and the blur
+          collapses. Where they do not, nothing is confirmed. The map sharpens
+          itself.
+        </p>
+      </div>
+    </div>
+    <div class="step" data-map-step="3">
+      <div class="step-card on-flood">
+        <p class="tag t-flood">The other kind of evidence</p>
+        <h3>Silence is not nothing.</h3>
+        <p>
+          &ldquo;No echo before 2.4 metres&rdquo; is a confident, specific claim
+          about a specific direction: that space is <em>empty</em>. Every silent
+          ping carves emptiness into the map &mdash; and erases the wrong parts
+          of other pings' arcs.
+        </p>
+      </div>
+    </div>
+    <div class="step" data-map-step="4">
+      <div class="step-card on-flood">
+        <p class="tag t-flood">A doorway is proved by silence</p>
+        <h3>The room appears.</h3>
+        <p>
+          Walls where echoes agreed. Open space where they never came. A ping
+          that returns nothing is not a failed ping &mdash; it is precisely how a
+          scan proves a doorway is a doorway.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ VII ══════════════════════════ -->
+<section>
+  <div class="col stack g-md">
+    <div class="chapter reveal">
+      <span class="num">VII</span><span class="rule"></span><span class="of">Two colours, two claims</span>
+    </div>
+    <div class="key reveal">
+      <div>
+        <div class="swatch" style="background: #F0A23C;"></div>
+        <h4>Something is here</h4>
+        <p>
+          An echo came back. Never trusted from one ping alone &mdash; a surface
+          has to be confirmed from a second direction before the map will commit
+          to it.
+        </p>
+      </div>
+      <div>
+        <div class="swatch" style="background: #5B8FC9;"></div>
+        <h4>Nothing is here</h4>
+        <p>
+          Silence, in a known direction, out to a known distance. It is the
+          <em>stronger</em> of the two claims, and it is the one most people
+          building these systems throw away.
+        </p>
+      </div>
+    </div>
+    <p class="aside reveal">
+      Almost every sonar display ever built draws only the first colour. A room
+      drawn in one colour cannot distinguish &ldquo;I looked and it was
+      empty&rdquo; from &ldquo;I never looked.&rdquo;
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════ VIII ══════════════════════════ -->
+<section>
+  <div class="col stack g-md">
+    <div class="chapter reveal">
+      <span class="num">VIII</span><span class="rule"></span><span class="of">The obvious objection</span>
+    </div>
+    <h2 class="reveal">A film got here first, and made it a nightmare.</h2>
+    <p class="reveal">
+      There is a well-known film in which a city is mapped by quietly turning
+      every phone in it into a sonar, without anyone's knowledge, and the
+      character who builds the machine treats it as so dangerous that it has to
+      be destroyed at the end.
+    </p>
+    <p class="lede reveal">
+      That reaction is not paranoia. It is the correct read of what this
+      technology becomes if you strip the consent out of it.
+    </p>
+    <p class="reveal">
+      Which means anyone building the real version owes an answer &mdash; and the
+      answer cannot be a privacy policy, because a privacy policy is a promise
+      about what someone intends to do. It has to be in the machine, where
+      intent stops mattering.
+    </p>
+
+    <div class="ledger reveal" style="margin-top: 1.5rem;">
+      <div class="row sodium">
+        <p class="tag t-sodium">Guard at the transmitter</p>
+        <h4>It cannot be quiet about being loud</h4>
+        <p>
+          A guard sits between the software and the speaker and refuses to
+          transmit anything dropping into the range a child or a dog would hear,
+          anything loud enough to distort, or anything running more than a third
+          of the time. It is the <em>first</em> statement the transmit path
+          executes &mdash; before it even checks whether audio is switched on
+          &mdash; so there is no order of operations that slips past it.
+        </p>
+      </div>
+      <div class="row sodium">
+        <p class="tag t-sodium">Coarse by construction</p>
+        <h4>What leaves the room is not what the microphone heard</h4>
+        <p>
+          The full detailed measurement is treated as sensitive and stays on the
+          device. What may cross a network is a coarsened version &mdash; enough
+          to describe a room's shape, not enough to reconstruct the recording.
+          That is enforced by what is <em>in</em> the file rather than by a label
+          asking politely, because a coarse measurement cannot be un-coarsened
+          and a check can always be reordered by someone in a hurry.
+        </p>
+      </div>
+      <div class="row sodium">
+        <p class="tag t-sodium">The refusal that cost a demo</p>
+        <h4>It will not say it found a person</h4>
+        <p>
+          This was the tempting one. The sensing standard it plugs into has a
+          ready-made &ldquo;someone is present&rdquo; signal, and filling that
+          field in would have made a far more impressive demonstration. An echo
+          at 2.4 metres is a <em>surface</em>. One speaker and one microphone
+          cannot tell a person from a coat over the back of a chair, and software
+          that claims otherwise is guessing with a straight face.
+        </p>
+      </div>
+    </div>
+
+    <p class="aside reveal" style="margin-top: 1.5rem;">
+      The consequence of that last refusal is that the system currently produces
+      no conclusions about people at all &mdash; zero. That is written into the
+      test suite as a deliberate, asserted result, with both independent reasons
+      pinned, rather than quietly worked around later.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════ IX ══════════════════════════ -->
+<section>
+  <div class="col stack g-md">
+    <div class="chapter reveal">
+      <span class="num">IX</span><span class="rule"></span><span class="of">What a hostile read turned up</span>
+    </div>
+    <h2 class="reveal">Four things that were wrong while every test was green.</h2>
+    <p class="lede reveal">
+      All four had passed everything. In each case the test was passing for a
+      reason other than the code being right &mdash; which is the failure mode
+      testing is worst at catching, because the green tick looks identical.
+    </p>
+
+    <div class="ledger reveal" style="margin-top: 1.3rem;">
+      <div class="row fault">
+        <p class="tag t-fault">01 &middot; The alarm wired to nothing</p>
+        <h4>The safety guard was guarding a simulation</h4>
+        <p>
+          The check that stops the phone emitting something painful was
+          thoroughly tested, and called in exactly one place: a scoring routine
+          that never touches a speaker. The real audio path took whatever it was
+          handed and played it. The guard was real, correct, and connected to
+          nothing.
+        </p>
+      </div>
+      <div class="row fault">
+        <p class="tag t-fault">02 &middot; The echo filed under the wrong direction</p>
+        <h4>Noise was choosing where the phone had been pointing</h4>
+        <p>
+          Chapter V, in full. It passed its tests because the recordings the
+          tests used were single-shot &mdash; they structurally could not contain
+          a second pulse, so they could not contain the bug.
+        </p>
+      </div>
+      <div class="row fault">
+        <p class="tag t-fault">03 &middot; Coverage of exactly one machine</p>
+        <h4>The browser test had only ever run where it was written</h4>
+        <p>
+          It hard-coded the file path of the specific computer that authored it.
+          Twenty passing checks, on one laptop, for as long as nobody looked
+          anywhere else.
+        </p>
+      </div>
+      <div class="row fault">
+        <p class="tag t-fault">04 &middot; The room itself</p>
+        <h4>The simulated world was 27 decibels too kind</h4>
+        <p>
+          The largest of the four, and the subject of the next chapter. It is
+          the only one that was not a coding mistake at all.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ X — SCENE: THE DROP ══════════════════════════ -->
+<section class="scene" id="sc-drop" aria-label="The dynamic range between the outgoing blast and a returning echo">
+  <div class="stage">
+    <canvas id="cv-drop" width="1000" height="600" role="img"
+            aria-label="A decibel ladder. The outgoing blast stays fixed at the top while the wall echo descends from 11.4 decibels below it to 38.3 decibels below it — the 26.9 decibel gap the simulator had been giving away."></canvas>
+  </div>
+  <div class="steps">
+    <div class="step" data-scene-step="0">
+      <div class="step-card on-fault">
+        <p class="tag t-fault">Chapter X &middot; The measurement, and the ruler</p>
+        <h3>Every number so far came from a room that does not exist.</h3>
+        <p>
+          There is no phone in this story yet. There is a physics model of a room
+          &mdash; walls, air, echoes &mdash; and every test, benchmark and score
+          is measured against it. Which makes a modelling error not a bug in a
+          simulator, but a measurement error in everything the project publishes.
+        </p>
+      </div>
+    </div>
+    <div class="step" data-scene-step="1">
+      <div class="step-card on-fault">
+        <p class="tag t-fault">The gap that was not there</p>
+        <h3>The loud thing was not paying for its short trip.</h3>
+        <p>
+          Every echo in the model paid the price of distance: sound spreads out
+          and gets quieter. The leak across the phone's case &mdash; ten
+          centimetres, the shortest trip in the system &mdash; was written in as
+          a flat constant, so it never earned the enormous loudness that a very
+          short trip implies.
+        </p>
+      </div>
+    </div>
+    <div class="step" data-scene-step="2">
+      <div class="step-card on-fault">
+        <p class="tag t-fault">11.4 dB, where the docs said tens</p>
+        <h3>The model's own documentation disagreed with it.</h3>
+        <p>
+          The comment at the top of the file said the leak arrives &ldquo;tens of
+          decibels above any echo.&rdquo; The code delivered
+          <strong>11.4</strong> against a wall at 2.4 metres. The paragraph was
+          right. It had simply never been implemented.
+        </p>
+      </div>
+    </div>
+    <div class="step" data-scene-step="3">
+      <div class="step-card on-sodium">
+        <p class="tag t-sodium">26.9 dB, returned</p>
+        <h3>The hardest part of the sensor was being simulated on easy mode.</h3>
+        <p>
+          Corrected, the gap is <strong>38.3 dB</strong>. That difference is
+          exactly the quantity the leak-cancelling machinery exists to fight
+          &mdash; so the single hardest problem in the design had been handed a
+          version of itself roughly five hundred times gentler than the real one.
+        </p>
+      </div>
+    </div>
+    <div class="step" data-scene-step="4">
+      <div class="step-card on-sodium">
+        <p class="tag t-sodium">It had already cost a wrong answer</p>
+        <h3>A correct fix had been rejected by a broken ruler.</h3>
+        <p>
+          The first attempt at chapter V's fix ranked pulses by loudness &mdash;
+          sound on a real phone, where the leak towers over everything. It failed
+          its test, because in the compressed range a wall at 1.5 metres came
+          back louder than half the leak. A design correct for the real device
+          was rejected by a test measuring an artefact.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════ XI ══════════════════════════ -->
+<section>
+  <div class="col stack g-md">
+    <div class="chapter reveal">
+      <span class="num">XI</span><span class="rule"></span><span class="of">What the correction cost</span>
+    </div>
+    <h2 class="reveal">The sensor got honestly worse, and one thing got better.</h2>
+    <p class="reveal">
+      Fixing the model did not improve anything. It removed twenty-seven
+      decibels of help the code had been quietly receiving, and every published
+      figure moved to where it actually belonged.
+    </p>
+
+    <div class="scroll-x reveal" style="margin-top: 0.6rem;">
+      <table class="ba">
+        <thead>
+          <tr><th>Measured on the same scan</th><th>Before</th><th>After</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Working range, hard flat surface</td><td>4&ndash;5 m</td><td class="now">3.8 m</td></tr>
+          <tr><td>Detections over 45 pings</td><td>70</td><td class="now">63</td></tr>
+          <tr><td>Voxels the map commits to</td><td>13,901</td><td class="now">9,463</td></tr>
+          <tr><td>Signal processing per ping</td><td>0.99 ms</td><td class="now">0.75 ms</td></tr>
+          <tr><td>How distinctly rooms tell apart</td><td>0.138</td><td class="now">0.221</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="reveal" style="margin-top: 0.4rem;">
+      The processing got <em>faster</em> because there are fewer phantom
+      detections to grind through. And rooms became easier to tell apart, not
+      harder: with distant returns correctly suppressed, a room is described by
+      its distinctive near geometry rather than by a haze of things it was never
+      really seeing.
+    </p>
+
+    <p class="pull reveal">
+      Then the automated design search, which had never once been able to improve
+      the outgoing sound, started improving it &mdash; and walked to the exact
+      settings the physics argument had chosen by hand, two years of reasoning
+      away and knowing nothing about it.
+    </p>
+    <p class="reveal">
+      Same sweep, 17.5 to 20.5 thousand cycles, five milliseconds, the same
+      shaping at the edges. An automated search starting from a deliberately bad
+      guess and a hand argument from first principles arrived at the same answer
+      independently. That agreement is worth more than either result on its own
+      &mdash; and it was invisible for as long as the physics was wrong.
+    </p>
+  </div>
+</section>
+
+<!-- ══════════════════════════ CLOSE ══════════════════════════ -->
+<section>
+  <div class="col stack g-md">
+    <div class="chapter reveal">
+      <span class="num">XII</span><span class="rule"></span><span class="of">Where this actually stands</span>
+    </div>
+    <h2 class="reveal">A corrected model is still a model that agrees with itself.</h2>
+    <p class="reveal">
+      That is the part no amount of care fixes. The physics is better now, and
+      the physics is still the only witness. Chapter V's bug proves what that
+      costs: it lived precisely in the gap between the model and a real
+      microphone, and no quantity of testing against the model could ever have
+      found it, because the model does not contain the thing that goes wrong.
+    </p>
+    <p class="pull reveal">
+      The next real advance here is not an algorithm.<br>
+      It is a phone, a tape measure, and an afternoon in an actual room.
+    </p>
+
+    <div class="figs reveal" style="margin-top: 1.7rem;">
+      <div><b>9.6 cm</b><span>distance resolution</span></div>
+      <div><b>0.6&ndash;3.8 m</b><span>honest working range</span></div>
+      <div><b>1.32 ms</b><span>work per ping, of 66.7 available</span></div>
+      <div><b>15/s</b><span>pings while sweeping</span></div>
+      <div class="hot"><b>0</b><span>real rooms measured</span></div>
+    </div>
+    <p class="aside reveal">
+      That last figure is the honest one, and it sits deliberately in the same
+      row as the others rather than in a disclaimer underneath them. Every
+      number to its left is a prediction until it is not.
+    </p>
+  </div>
+</section>
+
+<footer>
+  <div class="col stack g-sm">
+    <p class="eyebrow">BatVu</p>
+    <p style="font-size: 0.96rem;">
+      Open source, and built in the open &mdash;
+      <a href="https://github.com/ruvnet/batvu">the scanner</a>,
+      <a href="https://github.com/ruvnet/rufield">the sensing schema it speaks</a>,
+      and <a href="https://github.com/ruvnet/batvu/issues/4">the flaw in the simulator</a>
+      that chapters X and XI are about.
+    </p>
+    <p class="aside" style="margin-top: 1.2rem;">
+      The emitted band is inaudible to most adults. Children, dogs and cats hear
+      it. Nothing described here is a medical or safety device, and no figure on
+      this page has yet been measured against a real room.
+    </p>
+  </div>
+</footer>
+
+<script>
+(() => {
+  'use strict';
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const DPR = Math.min(devicePixelRatio || 1, 2);
+  const C = {
+    bone: '242,239,230', chalk: '166,164,156', dust: '102,100,94',
+    sodium: '240,162,60', flood: '91,143,201', fault: '196,85,58',
+    rim: '28,33,48', rimHi: '42,49,69',
+  };
+  const rgba = (c, a) => 'rgba(' + c + ',' + a + ')';
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  // Frame-rate independent damping. `k` is roughly "how many e-folds per
+  // second", so the same feel on a 60 Hz laptop and a 120 Hz phone.
+  const damp = (cur, target, k, dt) => cur + (target - cur) * (1 - Math.exp(-k * dt));
+  // Stage windows, all keyed to the same boundary the caption cards switch on
+  // (`floor(f)`), so the text column, the heading and the drawing never
+  // disagree about which stage the reader is in.
+  //
+  // `near` fades a stage's *shapes* in over the first 0.15 of its own span and
+  // out over the last 0.15, putting an exact 50/50 crossover on the boundary —
+  // one diagram dissolves into the next. The outermost stages skip the ramp on
+  // the side that has no neighbour, so a scene is at full strength the moment
+  // it is entered and still at full strength when it is left.
+  const near = (x, k, n) => {
+    const u = x - k;
+    if (u <= -0.15 || u >= 1.15) return 0;
+    const fadeIn  = k === 0     ? 1 : clamp((u + 0.15) / 0.3, 0, 1);
+    const fadeOut = k === n - 1 ? 1 : clamp((1.15 - u) / 0.3, 0, 1);
+    return Math.min(fadeIn, fadeOut);
+  };
+  // Headings get the opposite treatment. Superimposed shapes blend;
+  // superimposed *text* is unreadable. So only the stage that owns the screen
+  // captions itself, and its caption is fully gone across the handover — same
+  // no-neighbour exemption at the two ends.
+  const captions = (f, n) => {
+    const dom = Math.floor(f), u = f - dom;
+    const fadeIn  = dom === 0     ? 1 : clamp(u / 0.18, 0, 1);
+    const fadeOut = dom === n - 1 ? 1 : clamp((1 - u) / 0.18, 0, 1);
+    return { dom, a: Math.min(fadeIn, fadeOut) };
+  };
+
+  // The backing store follows the CSS box, so every coordinate in the scenes
+  // below is a real CSS pixel: an 11px label is 11px on a phone and on a
+  // desktop, instead of shrinking to nothing inside a fixed-size canvas.
+  function stage(id) {
+    const cv = document.getElementById(id);
+    const ctx = cv.getContext('2d');
+    let cw = 0, ch = 0;
+    return {
+      ctx,
+      sync() {
+        const w = Math.round(cv.clientWidth), h = Math.round(cv.clientHeight);
+        if ((w !== cw || h !== ch) && w > 0 && h > 0) {
+          cw = w; ch = h;
+          cv.width = w * DPR; cv.height = h * DPR;
+          ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+        }
+        return { w: cw, h: ch };
+      },
+    };
+  }
+
+  /* ── reveal on scroll, cascading within a group ───────────────── */
+  document.querySelectorAll('.stack, .steps').forEach(group => {
+    let i = 0;
+    for (const el of group.children) {
+      if (el.classList.contains('reveal')) el.style.setProperty('--rd', Math.min(i++, 6) * 70 + 'ms');
+    }
+  });
+  const revealer = new IntersectionObserver(es => {
+    for (const e of es) {
+      if (!e.isIntersecting) continue;
+      e.target.classList.add('in');
+      revealer.unobserve(e.target);
+      setTimeout(() => e.target.classList.add('done'), 1800);
+    }
+  }, { rootMargin: '0px 0px -12% 0px', threshold: 0.1 });
+  document.querySelectorAll('.reveal').forEach(n => revealer.observe(n));
+
+  /* ── depth rail ───────────────────────────────────────────────── */
+  const railFill = document.getElementById('rail-fill');
+  const railPct = document.getElementById('rail-pct');
+  let railShown = 0;
+
+  /* ══════════════════════════════════════════════════════════════
+     ONE FRAME LOOP.
+
+     Every scene used to be drawn from the scroll handler, which meant
+     the whole page froze the instant the reader stopped scrolling. Now
+     scroll only sets a *target*; a single rAF loop eases each scene
+     toward it and hands every draw a wall-clock time, so a scene has a
+     life of its own — a sweep that keeps turning, a playhead that keeps
+     travelling — whether or not anything is moving.
+
+     The loop runs only while something on screen wants it, and parks
+     itself otherwise.
+     ══════════════════════════════════════════════════════════════ */
+  const scenes = [];
+  function registerScene(sectionId, draw, stepAttr) {
+    const sec = document.getElementById(sectionId);
+    if (!sec) return;
+    const sc = {
+      sec, draw, visible: false, p: 0, target: 0, primed: false,
+      steps: [...sec.querySelectorAll('[' + stepAttr + ']')], last: -1,
+    };
+    scenes.push(sc);
+    new IntersectionObserver(es => {
+      for (const e of es) { sc.visible = e.isIntersecting; if (e.isIntersecting) wake(); }
+    }, { rootMargin: '10% 0px' }).observe(sec);
+  }
+
+  const hero = document.getElementById('open');
+  const heroInner = document.querySelector('.open-inner');
+  let heroVisible = true;
+  new IntersectionObserver(es => {
+    for (const e of es) { heroVisible = e.isIntersecting; if (e.isIntersecting) wake(); }
+  }, { rootMargin: '0px' }).observe(hero);
+
+  let running = false, prevTs = 0;
+  function wake() { if (!running && !reduce) { running = true; prevTs = 0; requestAnimationFrame(frame); } }
+
+  function frame(ts) {
+    const t = ts / 1000;
+    const dt = prevTs ? Math.min((ts - prevTs) / 1000, 0.05) : 0.016;
+    prevTs = ts;
+    let alive = false;
+
+    // depth rail, eased so it glides instead of stepping
+    const doc = document.documentElement;
+    const depth = clamp(scrollY / Math.max(doc.scrollHeight - innerHeight, 1), 0, 1);
+    railShown = damp(railShown, depth, 11, dt);
+    if (railFill) railFill.style.height = (railShown * 100).toFixed(2) + '%';
+    if (railPct) railPct.textContent = Math.round(railShown * 100) + '%';
+    if (Math.abs(railShown - depth) > 0.0005) alive = true;
+
+    if (heroVisible) {
+      alive = true;
+      drawHero(t, dt);
+      // the title drifts and dims as the reader leaves, so the cold open
+      // hands off rather than scrolling away as a solid block
+      const away = clamp(scrollY / Math.max(innerHeight, 1), 0, 1);
+      if (heroInner) {
+        heroInner.style.transform = 'translate3d(0,' + (away * -70).toFixed(1) + 'px,0)';
+        heroInner.style.opacity = (1 - away * 1.15).toFixed(3);
+      }
+    }
+
+    for (const sc of scenes) {
+      if (!sc.visible) continue;
+      alive = true;
+      const r = sc.sec.getBoundingClientRect();
+      const span = Math.max(r.height - innerHeight, 1);
+      sc.target = clamp(-r.top / span, 0, 1);
+      // Snap on first sight (arriving mid-scene shouldn't animate from zero),
+      // then ease from there.
+      sc.p = sc.primed ? damp(sc.p, sc.target, 8.5, dt) : sc.target;
+      sc.primed = true;
+
+      const n = sc.steps.length;
+      const f = clamp(sc.p * n, 0, n - 0.0001);   // continuous stage position
+      const idx = Math.floor(f);
+      if (idx !== sc.last) {
+        sc.steps.forEach((el, i) => el.classList.toggle('active', i === idx));
+        sc.last = idx;
+      }
+      sc.draw(f, t, dt, n);
+    }
+
+    if (alive) requestAnimationFrame(frame); else running = false;
+  }
+
+  // Scroll only wakes the loop; it never draws. Cheap, and it means a
+  // fling-scroll on a phone does not queue up a backlog of canvas work.
+  addEventListener('scroll', wake, { passive: true });
+  addEventListener('resize', wake);
+
+  /* ══════════════ COLD OPEN: rain, sodium haze, pulses ══════════════ */
+  const oc = document.getElementById('open-canvas');
+  const octx = oc.getContext('2d');
+  let ow = 0, oh = 0;
+  const drops = [];
+  function sizeOpen() {
+    ow = oc.clientWidth; oh = oc.clientHeight;
+    if (!ow || !oh) return;
+    oc.width = ow * DPR; oc.height = oh * DPR;
+    octx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    drops.length = 0;
+    const n = Math.round(Math.min(ow, 1400) / 8);
+    for (let i = 0; i < n; i++) {
+      // A deterministic scatter reads as rain and never reshuffles into a
+      // clump on resize. Three depths, so the near ones fall faster.
+      const u = (i * 0.6180339887) % 1;
+      const v = (i * 0.7548776662) % 1;
+      const depth = (i % 3) / 2;
+      drops.push({
+        x: u * ow, y: v * oh,
+        len: 9 + depth * 30, spd: 150 + depth * 420,
+        a: 0.035 + depth * 0.1,
+      });
+    }
+  }
+  sizeOpen();
+  addEventListener('resize', sizeOpen);
+
+  // Hidden surfaces the opening pulse discovers. Placed rather than random,
+  // so the reveal reads as a room rather than as noise.
+  const surfaces = [
+    { d: 0.19, a0: -2.65, a1: -2.15 }, { d: 0.27, a0: -0.85, a1: -0.25 },
+    { d: 0.34, a0:  0.55, a1:  1.35 }, { d: 0.41, a0:  2.25, a1:  2.95 },
+    { d: 0.49, a0: -1.75, a1: -1.25 }, { d: 0.56, a0:  3.35, a1:  3.95 },
+  ];
+
+  function openStatics(cx, cy, max) {
+    const g = octx.createRadialGradient(cx, oh * 1.05, 0, cx, oh * 1.05, oh * 0.95);
+    g.addColorStop(0, rgba(C.sodium, 0.14));
+    g.addColorStop(0.55, rgba(C.sodium, 0.035));
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    octx.fillStyle = g; octx.fillRect(0, 0, ow, oh);
+    const v = octx.createRadialGradient(cx, cy, Math.min(ow, oh) * 0.18, cx, cy, max * 1.5);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(1, 'rgba(3,4,7,0.92)');
+    octx.fillStyle = v; octx.fillRect(0, 0, ow, oh);
+  }
+
+  const rings = [];
+  let ringClock = 0;
+  function drawHero(t, dt) {
+    if (!ow || !oh) { sizeOpen(); if (!ow) return; }
+    const cx = ow / 2, cy = oh / 2;
+    const max = Math.hypot(ow, oh) * 0.55;
+    octx.clearRect(0, 0, ow, oh);
+    openStatics(cx, cy, max);
+
+    // rain, leaning slightly, three depths
+    octx.lineCap = 'round';
+    for (const d of drops) {
+      d.y += d.spd * dt;
+      d.x += d.spd * 0.16 * dt;
+      if (d.y > oh + 40) { d.y = -40; d.x = (d.x + ow * 0.37) % ow; }
+      octx.beginPath();
+      octx.moveTo(d.x, d.y);
+      octx.lineTo(d.x - d.len * 0.16, d.y - d.len);
+      octx.strokeStyle = rgba(C.bone, d.a);
+      octx.lineWidth = 1;
+      octx.stroke();
+    }
+
+    // a searchlight too slow to catch in the act
+    const sweep = Math.sin(t / 5.2) * 0.55 - Math.PI / 2;
+    const beam = octx.createLinearGradient(cx, oh, cx + Math.cos(sweep) * max, oh + Math.sin(sweep) * max);
+    beam.addColorStop(0, rgba(C.sodium, 0.07));
+    beam.addColorStop(1, 'rgba(0,0,0,0)');
+    octx.beginPath();
+    octx.moveTo(cx, oh + 20);
+    octx.arc(cx, oh + 20, max * 1.3, sweep - 0.08, sweep + 0.08);
+    octx.closePath();
+    octx.fillStyle = beam; octx.fill();
+
+    ringClock += dt;
+    if (rings.length === 0 || ringClock - rings[rings.length - 1].born > 2.4) rings.push({ born: ringClock });
+    for (let i = rings.length - 1; i >= 0; i--) {
+      const age = (ringClock - rings[i].born) / 4.4;
+      if (age > 1) { rings.splice(i, 1); continue; }
+      const r = age * max;
+      const fade = Math.sin(Math.min(age, 1) * Math.PI) * 0.5;
+      octx.beginPath();
+      octx.arc(cx, cy, r, 0, Math.PI * 2);
+      octx.strokeStyle = rgba(C.sodium, fade * 0.42);
+      octx.lineWidth = 1;
+      octx.stroke();
+      // a surface the wavefront has just reached lights up and blooms
+      for (const sf of surfaces) {
+        const sd = sf.d * max;
+        if (r > sd && r < sd + 34) {
+          const a = (1 - (r - sd) / 34) * fade * 2.4;
+          octx.save();
+          octx.shadowColor = rgba(C.bone, 0.5);
+          octx.shadowBlur = 14 * a;
+          octx.beginPath();
+          octx.arc(cx, cy, sd, sf.a0, sf.a1);
+          octx.strokeStyle = rgba(C.bone, Math.min(a, 0.55));
+          octx.lineWidth = 2.2;
+          octx.stroke();
+          octx.restore();
+        }
+      }
+    }
+  }
+
+  /* ══════════════ SCENE III: the squeeze ══════════════ */
+  {
+    const st = stage('cv-squeeze'), ctx = st.ctx;
+    const noise = i => {
+      const v = Math.sin(i * 12.9898) * 43758.5453;
+      return (v - Math.floor(v)) * 2 - 1;
+    };
+
+    function draw(f, t) {
+      const { w, h } = st.sync();
+      if (!w) return;
+      const PAD = Math.max(14, w * 0.05), IW = w - PAD * 2;
+      const FS = clamp(w / 820, 0.82, 1.2);
+      const mono = (x, y, text, colour, m, align) => {
+        ctx.font = (11 * FS * (m || 1)).toFixed(1) + 'px "IBM Plex Mono", monospace';
+        ctx.fillStyle = colour; ctx.textAlign = align || 'left';
+        ctx.fillText(text, x, y); ctx.textAlign = 'left';
+      };
+      const topMid = h * 0.27, botMid = h * 0.75;
+      // stages 0–1 hold the raw trace; 2–3 compress it
+      const k = ease(clamp((f - 2) / 2, 0, 1));
+      const N = Math.min(1100, Math.max(320, Math.round(IW * 1.6)));
+      // a playhead travelling the time axis, so the panel reads as a
+      // recording being played rather than a picture of one
+      const head = (t * 0.19) % 1.35 - 0.175;
+      const headX = PAD + head * IW;
+
+      ctx.clearRect(0, 0, w, h);
+      const baseline = mid => {
+        ctx.beginPath(); ctx.moveTo(PAD, mid); ctx.lineTo(w - PAD, mid);
+        ctx.strokeStyle = rgba(C.rimHi, 1); ctx.lineWidth = 1; ctx.stroke();
+      };
+
+      // the raw trace, drawn twice: dim everywhere, bright under the playhead
+      const rawPath = () => {
+        ctx.beginPath();
+        for (let i = 0; i <= N; i++) {
+          const u = i / N, x = PAD + u * IW;
+          const inPulse = u > 0.26 && u < 0.72;
+          const uu = (u - 0.26) / 0.46;
+          const chirp = inPulse ? Math.sin(uu * (10 + 78 * uu) * Math.PI) * h * 0.030 : 0;
+          // the hiss shimmers slowly: a live microphone, not a screenshot
+          const y = topMid - noise(i + Math.floor(t * 7) * 977) * h * 0.024 - chirp;
+          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        }
+      };
+      mono(PAD, topMid - h * 0.14, 'WHAT THE MICROPHONE RECORDED', rgba(C.dust, 1));
+      baseline(topMid);
+      rawPath();
+      ctx.strokeStyle = rgba(C.chalk, 0.38); ctx.lineWidth = 1; ctx.stroke();
+      ctx.save();
+      ctx.beginPath(); ctx.rect(headX - IW * 0.11, 0, IW * 0.22, h); ctx.clip();
+      rawPath();
+      ctx.strokeStyle = rgba(C.bone, 0.72); ctx.lineWidth = 1.2; ctx.stroke();
+      ctx.restore();
+      if (headX > PAD && headX < w - PAD) {
+        const gl = ctx.createLinearGradient(headX, topMid - h * 0.09, headX, topMid + h * 0.09);
+        gl.addColorStop(0, 'rgba(0,0,0,0)');
+        gl.addColorStop(0.5, rgba(C.bone, 0.22));
+        gl.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.beginPath(); ctx.moveTo(headX, topMid - h * 0.09); ctx.lineTo(headX, topMid + h * 0.09);
+        ctx.strokeStyle = gl; ctx.lineWidth = 1; ctx.stroke();
+      }
+
+      const x0 = PAD + 0.26 * IW, x1 = PAD + 0.72 * IW, br = topMid + h * 0.075;
+      ctx.beginPath();
+      ctx.moveTo(x0, br - 8); ctx.lineTo(x0, br);
+      ctx.lineTo(x1, br); ctx.lineTo(x1, br - 8);
+      ctx.strokeStyle = rgba(C.sodium, 0.5); ctx.lineWidth = 1; ctx.stroke();
+      mono((x0 + x1) / 2, br + 18 * FS, 'THE ECHO IS IN HERE  ·  5 ms', rgba(C.sodium, 0.85), 1, 'center');
+
+      // ── panel 2: after the matched filter
+      mono(PAD, botMid - h * 0.30, 'AFTER LINING IT UP AGAINST A COPY OF WHAT WAS SENT', rgba(C.dust, 1));
+      baseline(botMid);
+      // once compressed the spike breathes, so the peak stays alive on screen
+      const breath = 1 + Math.sin(t * 2.1) * 0.022 * k;
+      ctx.save();
+      if (k > 0.5) { ctx.shadowColor = rgba(C.sodium, 0.55); ctx.shadowBlur = 22 * (k - 0.5) * 2; }
+      ctx.beginPath();
+      for (let i = 0; i <= N; i++) {
+        const u = i / N, x = PAD + u * IW;
+        const spread = lerp(0.30, 0.011, k);
+        const g = Math.exp(-Math.pow((u - 0.49) / spread, 2) * 2);
+        const wob = Math.sin(u * (12 + 66 * u) * Math.PI);
+        const amp = lerp(h * 0.026, h * 0.30, k) * g * breath;
+        const y = botMid - wob * amp - noise(i + 500) * h * 0.007 * (1 - k * 0.8);
+        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      }
+      ctx.strokeStyle = rgba(C.sodium, lerp(0.45, 1, k)); ctx.lineWidth = 1.5; ctx.stroke();
+      ctx.restore();
+
+      const gain = lerp(1, 15, k);
+      ctx.font = '500 ' + Math.round(30 * FS) + 'px "IBM Plex Mono", monospace';
+      ctx.fillStyle = rgba(C.sodium, lerp(0.25, 1, k));
+      ctx.textAlign = 'right';
+      ctx.fillText('×' + gain.toFixed(1), w - PAD, botMid - h * 0.22);
+      ctx.textAlign = 'left';
+      mono(w - PAD, botMid - h * 0.185,
+           k > 0.85 ? '11.8 dB RECOVERED' : 'TALLER THAN THE SMEAR',
+           rgba(C.dust, 1), 1, 'right');
+    }
+    registerScene('sc-squeeze', draw, 'data-scene-step');
+  }
+
+  /* ══════════════ SCENE V: four identical shouts ══════════════ */
+  {
+    const st = stage('cv-comb'), ctx = st.ctx;
+    // Four pulses on a metronome. The amplitudes are deliberately NOT ordered
+    // by recency — that mismatch is the entire bug.
+    const PULSES = [
+      { u: 0.10,  amp: 0.74 },
+      { u: 0.325, amp: 1.00 },   // loudest, and three ticks stale
+      { u: 0.55,  amp: 0.66 },
+      { u: 0.775, amp: 0.81 },   // most recent, and the correct one
+    ];
+    const ECHO_OFF = 0.085, LOUDEST = 1, CORRECT = 3;
+    const WANDER = [1, 3, 1, 0, 1, 2, 1];
+
+    function draw(f, t, dt, n) {
+      const { w, h } = st.sync();
+      if (!w) return;
+      const PAD = Math.max(14, w * 0.055), IW = w - PAD * 2;
+      const FS = clamp(w / 820, 0.82, 1.2);
+      const narrow = w < 560;
+      const mid = h * (narrow ? 0.66 : 0.60), TALL = h * 0.36;
+      const X = u => PAD + u * IW;
+      const mono = (x, y, text, colour, m, align) => {
+        ctx.font = (11 * FS * (m || 1)).toFixed(1) + 'px "IBM Plex Mono", monospace';
+        ctx.fillStyle = colour; ctx.textAlign = align || 'center';
+        ctx.fillText(text, x, y); ctx.textAlign = 'left';
+      };
+      const pulse = (u, amp, colour, lw) => {
+        const x = X(u);
+        ctx.beginPath(); ctx.moveTo(x, mid); ctx.lineTo(x, mid - amp * TALL);
+        ctx.strokeStyle = colour; ctx.lineWidth = lw || 3; ctx.stroke();
+      };
+      const echo = (u, amp, colour) => {
+        const x = X(u + ECHO_OFF);
+        ctx.beginPath(); ctx.moveTo(x, mid); ctx.lineTo(x, mid - amp * TALL * 0.19);
+        ctx.strokeStyle = colour; ctx.lineWidth = 2.5; ctx.stroke();
+      };
+      // Takes the colour tuple and an alpha, so a stage's heading fades with
+      // that stage's weight rather than switching.
+      const head = (l1, l2, tuple, a) => {
+        mono(w / 2, h * 0.12, l1, rgba(tuple, a), 1.18);
+        mono(w / 2, h * 0.12 + 21 * FS, l2, rgba(C.dust, a), 1);
+      };
+
+      ctx.clearRect(0, 0, w, h);
+      ctx.beginPath(); ctx.moveTo(PAD, mid); ctx.lineTo(w - PAD, mid);
+      ctx.strokeStyle = rgba(C.rimHi, 1); ctx.lineWidth = 1; ctx.stroke();
+      mono(PAD, mid + 30 * FS, 'OLDER', rgba(C.dust, 1), 1, 'left');
+      mono(w - PAD, mid + 30 * FS, 'NOW', rgba(C.dust, 1), 1, 'right');
+
+      for (const p of PULSES) {
+        pulse(p.u, p.amp, rgba(C.chalk, 0.24));
+        echo(p.u, p.amp, rgba(C.chalk, 0.18));
+      }
+
+      // Every pulse keeps sending: a wavefront leaves it, reaches its own
+      // echo, and dies. The causal link the whole chapter turns on, running
+      // continuously so it is visible without scrolling.
+      for (let i = 0; i < PULSES.length; i++) {
+        const p = PULSES[i];
+        const phase = ((t * 0.55) + i * 0.25) % 1;
+        if (phase > 0.72) continue;
+        const q = phase / 0.72;
+        const x = X(p.u + ECHO_OFF * q);
+        const a = Math.sin(q * Math.PI) * 0.5;
+        ctx.beginPath();
+        ctx.arc(x, mid, 3 + q * 9, -Math.PI * 0.62, Math.PI * 0.62);
+        ctx.strokeStyle = rgba(C.sodium, a * 0.55);
+        ctx.lineWidth = 1.2; ctx.stroke();
+      }
+
+      // stage weights — the scene crossfades instead of switching
+      const w0 = near(f, 0, n), w1 = near(f, 1, n), w2 = near(f, 2, n), w3 = near(f, 3, n);
+      // …but only one stage is ever allowed to caption itself
+      const cap = captions(f, n);
+      const capA = k => (cap.dom === k ? cap.a : 0);
+
+      if (w0 > 0.01) {
+        if (capA(0) > 0.01) head('FOUR IDENTICAL PULSES  ·  ONE RECORDING',
+             'EACH WITH ITS OWN FAINT ECHO BEHIND IT', C.bone, capA(0));
+        for (const p of PULSES) {
+          pulse(p.u, p.amp, rgba(C.bone, 0.55 * w0));
+          echo(p.u, p.amp, rgba(C.sodium, 0.65 * w0));
+        }
+        const gy = mid + 52 * FS;
+        ctx.beginPath();
+        ctx.moveTo(X(PULSES[0].u), gy); ctx.lineTo(X(PULSES[1].u), gy);
+        ctx.strokeStyle = rgba(C.rimHi, w0); ctx.lineWidth = 1; ctx.stroke();
+        for (const u of [PULSES[0].u, PULSES[1].u]) {
+          ctx.beginPath(); ctx.moveTo(X(u), gy - 4); ctx.lineTo(X(u), gy + 4);
+          ctx.strokeStyle = rgba(C.rimHi, w0); ctx.stroke();
+        }
+        mono((X(PULSES[0].u) + X(PULSES[1].u)) / 2, gy + 18 * FS,
+             'SAME GAP, EVERY TIME', rgba(C.dust, w0), 1);
+      }
+
+      if (w1 > 0.01) {
+        // the marker skips on its own clock — noise casting the vote, live
+        const p = PULSES[WANDER[Math.floor(t * 2.6) % 7]];
+        const top = mid - p.amp * TALL;
+        pulse(p.u, p.amp, rgba(C.fault, 0.95 * w1), 4);
+        ctx.beginPath();
+        ctx.moveTo(X(p.u) - 9, top - 17); ctx.lineTo(X(p.u), top - 6); ctx.lineTo(X(p.u) + 9, top - 17);
+        ctx.closePath(); ctx.fillStyle = rgba(C.fault, 0.95 * w1); ctx.fill();
+        if (capA(1) > 0.01) head('"TAKE THE LOUDEST"',
+             'THEY ARE THE SAME SOUND — NOISE IS CASTING THE VOTE', C.fault, capA(1));
+      }
+
+      if (w2 > 0.01) {
+        const p = PULSES[LOUDEST];
+        pulse(p.u, p.amp, rgba(C.fault, 0.9 * w2), 4);
+        echo(p.u, p.amp, rgba(C.fault, 0.95 * w2));
+        const from = X(p.u + ECHO_OFF), to = X(PULSES[CORRECT].u + ECHO_OFF), ay = mid - h * 0.10;
+        ctx.save();
+        ctx.setLineDash([4, 5]); ctx.lineDashOffset = -t * 26;   // it keeps travelling
+        ctx.beginPath(); ctx.moveTo(from, ay); ctx.lineTo(to, ay);
+        ctx.strokeStyle = rgba(C.fault, 0.75 * w2); ctx.lineWidth = 1.4; ctx.stroke();
+        ctx.restore();
+        ctx.beginPath();
+        ctx.moveTo(to, ay); ctx.lineTo(to - 9, ay - 5); ctx.lineTo(to - 9, ay + 5);
+        ctx.closePath(); ctx.fillStyle = rgba(C.fault, 0.85 * w2); ctx.fill();
+        mono((from + to) / 2, ay - 12 * FS,
+             narrow ? 'FILED UNDER "NOW"' : 'FILED UNDER WHERE THE PHONE POINTS NOW',
+             rgba(C.fault, w2), 1);
+        if (capA(2) > 0.01) head('RIGHT DISTANCE  ·  WRONG DIRECTION',
+             'THE ONE ERROR MORE SCANNING CANNOT WASH OUT', C.fault, capA(2));
+      }
+
+      if (w3 > 0.01) {
+        const anchor = PULSES[LOUDEST];
+        pulse(anchor.u, anchor.amp, rgba(C.flood, 0.85 * w3), 3);
+        mono(X(anchor.u), mid - anchor.amp * TALL - 12 * FS, 'ANCHOR', rgba(C.flood, w3), 0.94);
+        const gap = PULSES[1].u - PULSES[0].u;
+        // the walk repeats on its own loop, so the fix demonstrates itself
+        const cycle = (t * 0.5) % 1;
+        const walked = clamp(cycle * 3.2, 0, 2);
+        for (let kk = 1; kk <= 2; kk++) {
+          if (walked < kk - 0.55) continue;
+          const a = clamp((walked - (kk - 1)) / 0.55, 0, 1) * w3;
+          const x = X(anchor.u + gap * kk);
+          ctx.save();
+          ctx.setLineDash([3, 4]);
+          ctx.beginPath(); ctx.moveTo(x, mid + 10); ctx.lineTo(x, mid - TALL * 1.18);
+          ctx.strokeStyle = rgba(C.flood, 0.4 * a); ctx.lineWidth = 1; ctx.stroke();
+          ctx.restore();
+          mono(x, mid + 48 * FS, '+1 TICK', rgba(C.flood, 0.85 * a), 0.94);
+        }
+        if (walked > 1.55) {
+          const a = clamp((walked - 1.55) / 0.45, 0, 1) * w3;
+          const p = PULSES[CORRECT];
+          ctx.save();
+          ctx.shadowColor = rgba(C.sodium, 0.6); ctx.shadowBlur = 16 * a;
+          pulse(p.u, p.amp, rgba(C.sodium, a), 4);
+          echo(p.u, p.amp, rgba(C.sodium, a));
+          ctx.restore();
+          mono(X(p.u), mid - p.amp * TALL - 12 * FS,
+               narrow ? 'MOST RECENT' : 'THE MOST RECENT ONE', rgba(C.sodium, a), 0.94);
+        }
+        if (capA(3) > 0.01) head('NO AMPLITUDE IS EVER COMPARED', 'SO NOISE GETS NO VOTE', C.sodium, capA(3));
+      }
+    }
+    registerScene('sc-comb', draw, 'data-scene-step');
+  }
+
+  /* ══════════════ SCENE VI: the map ══════════════ */
+  {
+    const st = stage('cv-map'), ctx = st.ctx;
+    const HALF = 30 * Math.PI / 180;              // the beam is 60 degrees wide
+
+    // A room: four walls, plus a gap on the right the scan has to discover is
+    // a doorway. Distances in metres from the phone at the centre.
+    function wallRange(a) {
+      const hw = 2.6, hh = 2.0;
+      const dx = Math.cos(a), dy = Math.sin(a);
+      let t = Infinity;
+      if (Math.abs(dx) > 1e-6) t = Math.min(t, Math.abs(hw / dx));
+      if (Math.abs(dy) > 1e-6) t = Math.min(t, Math.abs(hh / dy));
+      const na = ((a % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      if (na > 0.28 && na < 0.72) return null;    // the doorway
+      return t;
+    }
+    const beams = (n, from, to) => {
+      const out = [];
+      for (let i = 0; i < n; i++) out.push(from + (i / Math.max(n - 1, 1)) * (to - from));
+      return out;
+    };
+    const angDist = (a, b) => {
+      let d = (a - b) % (Math.PI * 2);
+      if (d > Math.PI) d -= Math.PI * 2;
+      if (d < -Math.PI) d += Math.PI * 2;
+      return Math.abs(d);
+    };
+
+    const STEPS = [
+      { n: 1,  from: -0.55, to: -0.55, free: false, arc: 0.6 },
+      { n: 1,  from: -0.55, to: -0.55, free: false, arc: 0.8 },
+      { n: 5,  from: -1.5,  to: 0.6,   free: false, arc: 0.45 },
+      { n: 34, from: -Math.PI, to: Math.PI, free: true, arc: 0.32 },
+      { n: 96, from: -Math.PI, to: Math.PI, free: true, arc: 0.28 },
+    ];
+
+    function draw(f, t) {
+      const { w, h } = st.sync();
+      if (!w) return;
+      const M = Math.min(w, h), CX = w / 2, CY = h / 2;
+      const SCALE = M * 0.135;                    // pixels per metre
+      const LW = Math.max(5, M * 0.011);
+      const FS = clamp(M / 700, 0.8, 1.15);
+      const idx = clamp(Math.floor(f), 0, STEPS.length - 1);
+      const local = f - Math.floor(f);
+      const s = STEPS[idx];
+      const progress = idx >= 3 ? clamp(0.12 + local * 1.6, 0, 1) : clamp(0.3 + local * 2.2, 0, 1);
+      // the beam that is turning, right now — it never stops
+      const sweep = (t * 0.62) % (Math.PI * 2) - Math.PI;
+
+      ctx.clearRect(0, 0, w, h);
+
+      // range rings
+      ctx.strokeStyle = rgba(C.rim, 0.95); ctx.lineWidth = 1;
+      for (let m = 1; m <= 3; m++) {
+        ctx.beginPath(); ctx.arc(CX, CY, m * SCALE, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.font = (10 * FS).toFixed(1) + 'px "IBM Plex Mono", monospace';
+      ctx.fillStyle = rgba(C.dust, 0.9); ctx.textAlign = 'left';
+      for (let m = 1; m <= 3; m++) ctx.fillText(m + ' m', CX + m * SCALE + 5, CY - 5);
+
+      // the sweep's trailing wedge, the oldest sonar idiom there is
+      const R = SCALE * 3.5;
+      for (let i = 0; i < 14; i++) {
+        const a0 = sweep - (i + 1) * 0.055, a1 = sweep - i * 0.055;
+        ctx.beginPath(); ctx.moveTo(CX, CY);
+        ctx.arc(CX, CY, R, a0, a1); ctx.closePath();
+        ctx.fillStyle = rgba(C.flood, 0.028 * (1 - i / 14));
+        ctx.fill();
+      }
+      ctx.beginPath();
+      ctx.moveTo(CX, CY);
+      ctx.lineTo(CX + Math.cos(sweep) * R, CY + Math.sin(sweep) * R);
+      ctx.strokeStyle = rgba(C.flood, 0.3); ctx.lineWidth = 1; ctx.stroke();
+
+      const list = beams(s.n, s.from, s.to);
+      const shown = Math.max(1, Math.round(list.length * progress));
+      if (s.free) {
+        for (let i = 0; i < shown; i++) {
+          const a = list[i], r = wallRange(a);
+          const rr = r === null ? 3.4 : Math.max(r - 0.28, 0.35);
+          ctx.beginPath(); ctx.moveTo(CX, CY);
+          ctx.arc(CX, CY, rr * SCALE, a - HALF, a + HALF);
+          ctx.closePath();
+          ctx.fillStyle = rgba(C.flood, r === null ? 0.05 : 0.035); ctx.fill();
+        }
+      }
+      // an arc the sweep is crossing right now blooms, then settles back
+      for (let i = 0; i < shown; i++) {
+        const a = list[i], r = wallRange(a);
+        if (r === null) continue;
+        const hot = clamp(1 - angDist(a, sweep) / 0.42, 0, 1);
+        ctx.save();
+        if (hot > 0.02) { ctx.shadowColor = rgba(C.sodium, 0.65); ctx.shadowBlur = 20 * hot; }
+        ctx.beginPath();
+        ctx.arc(CX, CY, r * SCALE, a - HALF, a + HALF);
+        ctx.strokeStyle = rgba(C.sodium, Math.min(s.arc + hot * 0.5, 1));
+        ctx.lineWidth = LW + hot * 2;
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // the phone, breathing
+      const pr = Math.max(10, M * 0.016) * (1 + Math.sin(t * 2.4) * 0.09);
+      ctx.beginPath(); ctx.arc(CX, CY, Math.max(4, M * 0.006), 0, Math.PI * 2);
+      ctx.fillStyle = rgba(C.bone, 0.95); ctx.fill();
+      ctx.beginPath(); ctx.arc(CX, CY, pr, 0, Math.PI * 2);
+      ctx.strokeStyle = rgba(C.bone, 0.22); ctx.lineWidth = 1; ctx.stroke();
+    }
+    registerScene('sc-map', draw, 'data-map-step');
+  }
+
+  /* ══════════════ SCENE X: the 26.9 dB drop ══════════════ */
+  {
+    const st = stage('cv-drop'), ctx = st.ctx;
+    const DB_MIN = -50;
+
+    function draw(f, t) {
+      const { w, h } = st.sync();
+      if (!w) return;
+      const FS = clamp(w / 820, 0.82, 1.2);
+      const TOP = h * 0.30, BOT = h * 0.86;
+      const yFor = db => TOP + (db / DB_MIN) * (BOT - TOP);
+      const blastX = w * 0.34, echoX = w * 0.72;
+      const barW = clamp(w * 0.15, 42, 116), barH = Math.max(7, h * 0.016);
+      const mono = (x, y, text, colour, m, align) => {
+        ctx.font = (11 * FS * (m || 1)).toFixed(1) + 'px "IBM Plex Mono", monospace';
+        ctx.fillStyle = colour; ctx.textAlign = align || 'center';
+        ctx.fillText(text, x, y); ctx.textAlign = 'left';
+      };
+
+      // Stages 0–1 hold at the wrong value; 2 begins to give; 3 makes the fall.
+      const k = f < 2 ? 0
+              : f < 3 ? ease(clamp(f - 2, 0, 1)) * 0.15
+              : f < 4 ? 0.15 + ease(clamp(f - 3, 0, 1)) * 0.85
+              : 1;
+      const db = lerp(-11.4, -38.3, k);
+      const hotC = k > 0.5 ? C.sodium : C.fault;
+
+      ctx.clearRect(0, 0, w, h);
+
+      ctx.font = '500 ' + Math.round(38 * FS) + 'px "IBM Plex Mono", monospace';
+      ctx.fillStyle = rgba(hotC, 1); ctx.textAlign = 'center';
+      ctx.fillText(Math.abs(db).toFixed(1) + ' dB', w / 2, h * 0.135);
+      ctx.textAlign = 'left';
+      mono(w / 2, h * 0.135 + 22 * FS,
+           k < 0.3 ? 'WHAT THE MODEL SAID' : (k < 0.95 ? 'FALLING…' : 'WHAT THE PHYSICS SAYS'),
+           rgba(C.dust, 1), 1);
+
+      ctx.strokeStyle = rgba(C.rim, 1); ctx.lineWidth = 1;
+      for (let d = 0; d >= DB_MIN; d -= 10) {
+        const y = yFor(d);
+        ctx.beginPath(); ctx.moveTo(w * 0.16, y); ctx.lineTo(w * 0.94, y); ctx.stroke();
+        mono(w * 0.145, y + 4, d + ' dB', rgba(C.dust, 1), 0.94, 'right');
+      }
+
+      // the leak: fixed, because it is the reference and not the variable.
+      // It shimmers, since it is the one arrival that is always enormous.
+      ctx.save();
+      ctx.shadowColor = rgba(C.bone, 0.4);
+      ctx.shadowBlur = 10 + Math.sin(t * 3.1) * 5;
+      ctx.fillStyle = rgba(C.bone, 0.9);
+      ctx.fillRect(blastX - barW / 2, yFor(0), barW, barH);
+      ctx.restore();
+      mono(blastX, yFor(0) - 12 * FS, w < 560 ? 'THE LEAK' : 'THE LEAK ACROSS THE CASE', rgba(C.bone, 0.9), 1);
+      mono(blastX, yFor(0) - 29 * FS, '10 CM', rgba(C.dust, 1), 0.94);
+
+      // where it used to sit, fading as the real value departs — the error
+      // stays visible for as long as it takes to read
+      if (k > 0.02 && k < 0.995) {
+        const ghost = yFor(-11.4);
+        ctx.fillStyle = rgba(C.fault, 0.30 * (1 - k));
+        ctx.fillRect(echoX - barW / 2, ghost, barW, barH);
+        mono(echoX, ghost - 9 * FS, 'AS MODELLED', rgba(C.fault, 0.6 * (1 - k)), 0.9);
+        ctx.save();
+        ctx.setLineDash([2, 4]);
+        ctx.beginPath();
+        ctx.moveTo(echoX, ghost + barH); ctx.lineTo(echoX, yFor(db));
+        ctx.strokeStyle = rgba(C.fault, 0.28 * (1 - k)); ctx.lineWidth = 1; ctx.stroke();
+        ctx.restore();
+      }
+
+      const ey = yFor(db);
+      ctx.save();
+      if (k > 0.9) { ctx.shadowColor = rgba(C.sodium, 0.55); ctx.shadowBlur = 14 * (k - 0.9) * 10; }
+      ctx.fillStyle = rgba(C.sodium, lerp(0.55, 1, k));
+      ctx.fillRect(echoX - barW / 2, ey, barW, barH);
+      ctx.restore();
+      mono(echoX, ey - 12 * FS, 'WALL AT 2.4 M', rgba(C.sodium, 1), 1);
+
+      // the gap, measured with marching ants so it reads as a live quantity
+      const gx = (blastX + echoX) / 2;
+      ctx.save();
+      ctx.setLineDash([3, 5]); ctx.lineDashOffset = -t * 22;
+      ctx.beginPath();
+      ctx.moveTo(blastX + barW / 2 + 6, yFor(0) + barH / 2);
+      ctx.lineTo(gx, yFor(0) + barH / 2);
+      ctx.moveTo(gx, ey + barH / 2);
+      ctx.lineTo(echoX - barW / 2 - 6, ey + barH / 2);
+      ctx.strokeStyle = rgba(C.rimHi, 1); ctx.lineWidth = 1; ctx.stroke();
+      ctx.restore();
+
+      ctx.strokeStyle = rgba(hotC, 1); ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(gx, yFor(0) + barH / 2); ctx.lineTo(gx, ey + barH / 2); ctx.stroke();
+      for (const y of [yFor(0) + barH / 2, ey + barH / 2]) {
+        ctx.beginPath(); ctx.moveTo(gx - 6, y); ctx.lineTo(gx + 6, y); ctx.stroke();
+      }
+
+      if (k > 0.97) {
+        mono(w / 2, h * 0.955,
+             w < 560 ? '26.9 dB GIVEN AWAY' : '26.9 dB THE SIMULATED ROOM HAD BEEN GIVING AWAY',
+             rgba(C.sodium, 1), 1.1);
+      } else if (f < 2) {
+        mono(w / 2, h * 0.955,
+             w < 560 ? 'THE DOCS SAID "TENS OF dB"' : 'THE DOCUMENTATION SAID "TENS OF DECIBELS"',
+             rgba(C.dust, 1), 1.05);
+      }
+    }
+    registerScene('sc-drop', draw, 'data-scene-step');
+  }
+
+  /* ── reduced motion: one static frame each, no loop ever starts ── */
+  if (reduce) {
+    const paint = () => {
+      if (!ow) sizeOpen();
+      const cx = ow / 2, cy = oh / 2, max = Math.hypot(ow, oh) * 0.55;
+      octx.clearRect(0, 0, ow, oh);
+      openStatics(cx, cy, max);
+      for (const sf of surfaces) {
+        octx.beginPath(); octx.arc(cx, cy, sf.d * max, sf.a0, sf.a1);
+        octx.strokeStyle = rgba(C.bone, 0.3); octx.lineWidth = 2.2; octx.stroke();
+      }
+      for (const sc of scenes) {
+        sc.steps.forEach((el, i) => el.classList.toggle('active', i === 0));
+        sc.draw(sc.steps.length - 0.5, 0, 0, sc.steps.length);
+      }
+    };
+    paint();
+    addEventListener('resize', paint);
+  } else {
+    wake();
+  }
+})();
+</script>
+
+</body>
+</html>

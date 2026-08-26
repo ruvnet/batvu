@@ -32,7 +32,10 @@
     A scroll-driven walk through the whole thing in plain language &mdash; why a
     phone has to hum instead of shout, how silence maps a doorway, and the four
     defects that sat behind green tests. <br>
-    Source is <code>site/explainer.html</code>; <code>npm run site</code> builds it.
+    Source is <code>site/explainer.html</code>. <code>npm run site</code> rebuilds
+    <code>docs/index.html</code>, which is committed and served from
+    <em>Pages &rarr; deploy from a branch &rarr; main &rarr; /docs</em> &mdash; so
+    edit the source, rebuild, and commit both.
   </sub>
 </p>
 
