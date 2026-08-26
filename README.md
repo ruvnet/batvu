@@ -2,6 +2,20 @@
 
 **An iPhone that pings the room in ultrasound and draws what comes back.**
 
+<p align="center">
+  <img src="docs/img/batvu-hero.png" width="330"
+       alt="BatVu running on a phone-sized screen. A plan-position display shows echoes drawn as bright arcs at roughly one to three metres, ringing a dark centre, with a pale wedge marking the beam the phone is currently pointing down. A sweep bar underneath shows which bearings have been covered. The counters read 230 pings, 326 echoes, 94% of bearings, 6% of the sphere, 22,262 voxels.">
+</p>
+
+<p align="center">
+  <sub>
+    Not a mock-up &mdash; the running app after a 230-ping sweep, arcs and all.
+    The subtitle says <em>Simulating</em> because it is: the simulator stands in
+    for the microphone, and the app admits that on its own face. <br>
+    <code>npm run hero</code> regenerates this from the live build.
+  </sub>
+</p>
+
 Stand still. Sweep the phone across the room like a torch. Fifteen times a
 second it emits a 17.5–20.5 kHz chirp you cannot hear, listens for the echo, and
 paints the answer onto a plan-position display.

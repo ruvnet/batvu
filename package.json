@@ -28,6 +28,7 @@
     "demo": "node packages/batvu-horizon/scripts/demo.mjs",
     "web:dev": "node packages/batvu-web/scripts/serve.mjs",
     "e2e": "node e2e/run-e2e.mjs",
+    "hero": "node scripts/capture-hero.mjs",
     "clean": "tsc --build --clean",
     "test:all": "npm run test:rust && npm run build && npm test && npm run e2e",
     "artifacts": "node scripts/collect-artifacts.mjs"
