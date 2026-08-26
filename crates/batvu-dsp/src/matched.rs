@@ -134,9 +134,11 @@ impl MatchedFilter {
 
     /// Compress `x`, leaving the complex profile in `buf_re`/`buf_im`.
     ///
-    /// Both public outputs read this one result rather than each running their
-    /// own transform, so `|complex_profile|` and `envelope` cannot drift apart:
-    /// they are the same floats with a different last step.
+    /// Both public outputs are `compress` plus a last step, so
+    /// `|complex_profile|` and `envelope` cannot drift apart: the same input
+    /// through the same deterministic transform, differing only in whether the
+    /// magnitude is taken. Each of them calls this once per invocation — the
+    /// shared thing is the code, not one buffered result.
     fn compress(&mut self, x: &[f32]) {
         let n = self.n;
         let take = x.len().min(n);
@@ -519,9 +521,13 @@ mod tests {
         let mut iq = vec![0.0f32; 2 * record_len];
         mf.complex_profile(&rec, 0, &mut iq);
 
-        // Bit-for-bit rather than within a tolerance. An epsilon here would pass
-        // just as happily if the complex path ran a SECOND transform of its own,
-        // and the whole point is that there is only one.
+        // Bit-for-bit rather than within a tolerance, and the reason is not
+        // that there is only one transform — `Fft` is deterministic, so a
+        // second identical transform would land on identical floats and an
+        // epsilon would not catch it either. It is that `sqrt(re² + im²)` is
+        // the ONLY step between the two outputs, so any difference at all is a
+        // difference in what was compressed. There is no rounding here to give
+        // a tolerance to, and an epsilon would silently license one.
         for (m, e) in env.iter().enumerate() {
             let (r, i) = (iq[2 * m], iq[2 * m + 1]);
             let mag = (r * r + i * i).sqrt();

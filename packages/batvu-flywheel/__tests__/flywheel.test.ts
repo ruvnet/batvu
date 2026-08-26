@@ -266,7 +266,7 @@ describe('the evaluator', () => {
   it('lets one unsafe room regress a whole suite', () => {
     const safe: EvaluationDetail = {
       room: 'a', iou: 0.5, freeIoU: 0.5, occupiedRecall: 0.5, occupiedPrecision: 0.5,
-      occupiedF1: 0.5, missRate: 0, silentPings: 0, brokenPings: 0,
+      occupiedF1: 0.5, missRate: 0, uncommittedFraction: 0.1, silentPings: 0, brokenPings: 0,
       falseFreeRate: 0, pings: 6, elapsedMs: 10,
       emissionVerdict: 'allow', primary: 0.5, noopRate: 0.1, costPerWin: 1, regressed: false,
     };

@@ -104,10 +104,11 @@
 // equal variance — an **Exponential** random variable — and the ordinates are
 // mutually independent. `k = 0` and, for even N, `k = N/2` are real-valued and
 // χ²₁ rather than exponential; both are excluded. Nothing else is done to the
-// sequence: the window is rectangular, there is no zero-padding, and the only
-// thing removed is the mean, which is EXACTLY the `k = 0` projection and
-// therefore leaves every other ordinate untouched. That is not a stylistic
-// choice, it is what keeps the null exact.
+// sequence: the window is rectangular, and there is no zero-padding, detrending
+// or filtering — any of which would correlate the ordinates and make the null
+// approximate. The mean IS removed, but that changes no evaluated ordinate: it
+// is exactly the `k = 0` projection, which is excluded anyway. It is kept for a
+// numerical reason rather than a statistical one, stated where it happens.
 //
 // **The distribution of g.** Let `E₁ … E_K` be i.i.d. Exponential and
 // `S = ΣE_k`. The scale cancels in `g = max E_k / S`, and `(E_k/S)` is uniform
@@ -233,9 +234,14 @@ export interface MicroMotionBin {
 }
 
 export interface MicroMotionDwell {
-  /** `insufficient_dwell` means no score was computed for any bin, and `bins`
-   *  is empty. A short dwell is not evidence of stillness. */
-  status: 'ok' | 'insufficient_dwell';
+  /** Anything but `ok` means no score was computed for any bin, and `bins` is
+   *  empty. Neither refusal is evidence of stillness.
+   *
+   *  `insufficient_dwell`: too few cycles, or too few Fourier bins in the band.
+   *  `no_noise_floor`: the floor came back at or below zero, so the SNR gate
+   *  could not run. See the guard in {@link analyzeDwell} for why that is a
+   *  refusal rather than a permissive default. */
+  status: 'ok' | 'insufficient_dwell' | 'no_noise_floor';
   /** Why, when the status is not `ok`. */
   reason: string | null;
   /** Dwell length, seconds. */
@@ -431,6 +437,20 @@ export function analyzeDwell(
   const rejectCommonMode = options.commonModeRejection ?? true;
   const noiseFloorEstimated = options.noiseFloor === undefined;
   const noiseFloor = options.noiseFloor ?? estimateNoiseFloor(dwell);
+  // Defended for the same reason every other option is. `alpha` outside (0, 1)
+  // makes `statisticThreshold` and `scoreThreshold` describe a line no bin can
+  // be on either side of, and the header would report them as though they were
+  // calibrated; `minCycles` below 1 switches off the `insufficient_dwell`
+  // refusal, which line 58 says is the alternative to a confident zero.
+  if (!(alpha > 0) || !(alpha < 1)) {
+    throw new Error(`batvu: alpha ${alpha} must lie strictly in (0, 1)`);
+  }
+  if (!(minCycles >= 1)) {
+    throw new Error(`batvu: minCycles ${minCycles} must be at least 1`);
+  }
+  if (!(minSnrDb >= 0) || !Number.isFinite(minSnrDb)) {
+    throw new Error(`batvu: minSnrDb ${minSnrDb} must be finite and non-negative`);
+  }
 
   const dwellS = pings / prfHz;
   const df = prfHz / pings;
@@ -442,6 +462,9 @@ export function analyzeDwell(
   // edge that lands exactly on a Fourier bin (0.6/0.025 evaluates to
   // 24.000000000000004) would otherwise be included or excluded by the last
   // bit of a float, and K is the only parameter of the null distribution.
+  // `Math.max(1, ...)` is not decoration: a band edge far below the frequency
+  // resolution makes `bandLo/df - 1e-9` negative, `ceil` of which is 0 — the
+  // mean ordinate, which is χ²₁ and not part of the null.
   const kLo = Math.max(1, Math.ceil(bandLo / df - 1e-9));
   const kHi = Math.min(kNyquist, Math.floor(bandHi / df + 1e-9));
   const bandBins = kHi - kLo + 1;
@@ -481,6 +504,30 @@ export function analyzeDwell(
       reason:
         `band [${bandLo}, ${bandHi}] Hz holds ${Math.max(0, bandBins)} Fourier bins at ` +
         `${df.toFixed(4)} Hz resolution; a maximum over fewer than 2 is not a test`,
+      commonModePeakM: 0,
+      bins: [],
+    };
+  }
+  // A floor of zero does not mean a quiet room, it means the gate below cannot
+  // run: `signal > snrGate * floorPower` degenerates to `signal > 0` and every
+  // bin holding anything at all is admitted, INCLUDING the empty ones whose
+  // phase is a random walk. That is the one condition the caveat at the top of
+  // this file says is refused, and it arrives by the ordinary route rather than
+  // an exotic one — `estimateNoiseFloor` returns exactly 0 whenever more than
+  // half the range bins are identically zero, which is the shape of any
+  // range-gated or zero-padded profile.
+  //
+  // The diagnostics cannot carry the warning either: `snrDb` would be
+  // -Infinity and `displacementNoiseM` Infinity for every bin, and both
+  // serialise to JSON `null`. So the dwell is refused whole, and the refusal is
+  // in `status` where a consumer already has to look.
+  if (!(noiseFloor > 0) || !Number.isFinite(noiseFloor)) {
+    return {
+      ...header,
+      status: 'no_noise_floor',
+      reason:
+        `noise floor ${noiseFloor} (${noiseFloorEstimated ? 'estimated from the dwell' : 'supplied by the caller'}) ` +
+        `is not positive, so the ${minSnrDb} dB gate cannot run and no bin's phase is interpretable`,
       commonModePeakM: 0,
       bins: [],
     };
@@ -585,7 +632,7 @@ export function analyzeDwell(
         rateHz: null,
         displacementM: null,
         displacementNoiseM: null,
-        snrDb: Number.isFinite(snrDb) ? snrDb : -Infinity,
+        snrDb,
       });
       continue;
     }
@@ -596,10 +643,17 @@ export function analyzeDwell(
     }
     unwrapInPlace(phase);
 
-    // Displacement, mean removed. Mean removal is exactly the k = 0 projection,
-    // so it changes no other ordinate and the null survives it untouched. The
-    // per-bin constant — the scatterer's own reflection phase — goes with it,
-    // which is the only reason a bin's absolute phase never has to be known.
+    // Displacement, mean removed.
+    //
+    // Algebraically this is a no-op for everything reported: subtracting the
+    // mean is the k = 0 projection and k = 0 is never evaluated. It earns its
+    // place numerically. The unwrapped track carries the scatterer's own
+    // reflection phase as a constant offset, and after unwrapping across a long
+    // dwell that offset can be many multiples of the millimetres being
+    // measured; the DFT below sums `v·cos(θ)` in float64, so a large common
+    // offset spends its precision on a cancellation that has no information in
+    // it. Removing it first is free and keeps the in-band ordinates conditioned
+    // on the signal rather than on the offset.
     let mean = 0;
     for (let p = 0; p < pings; p++) {
       const corrected = rejectCommonMode ? phase[p]! - commonPhase[p]! : phase[p]!;
@@ -653,7 +707,8 @@ export function analyzeDwell(
 }
 
 /**
- * The feature map a fusion consumer receives for one range bin.
+ * The feature map a fusion consumer receives for one range bin, or `null` when
+ * this bin has no feature to contribute.
  *
  * One key. ADR-023 §5 authorises `micromotion_band` and nothing else, so the
  * rate and the statistic ride outside the feature map as diagnostics — a
@@ -663,7 +718,17 @@ export function analyzeDwell(
  * over several modalities decides it, and a range sensor that filled it in
  * would be asserting the exact distinction — a person from a coat on a chair —
  * that one transducer pair cannot make.
+ *
+ * **`null`, not zero, for a refused bin.** This is the one boundary where the
+ * distinction the rest of this file keeps carefully could be erased, and
+ * erasing it would matter more here than anywhere else: under `weighted_bayes`
+ * a `micromotion_band` of 0 is EVIDENCE OF ABSENCE, so a bin the sensor
+ * declined to measure would arrive at the fusion rule as a bin the sensor
+ * looked at and found still. A range-only sensor pushing a fusion rule away
+ * from personhood on the strength of a measurement it refused to make is the
+ * same failure as pushing it towards personhood, and `status: 'no_return'`
+ * means there is nothing to contribute — not that there is nothing there.
  */
-export function micromotionFeature(bin: MicroMotionBin): { micromotion_band: number } {
-  return { micromotion_band: bin.status === 'ok' ? bin.micromotionBand : 0 };
+export function micromotionFeature(bin: MicroMotionBin): { micromotion_band: number } | null {
+  return bin.status === 'ok' ? { micromotion_band: bin.micromotionBand } : null;
 }

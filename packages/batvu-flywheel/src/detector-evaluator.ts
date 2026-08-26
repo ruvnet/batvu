@@ -97,6 +97,15 @@ import {
   type FlywheelResult,
   type Score,
 } from '@metaharness/flywheel';
+import { analyzeDwell } from '@batvu/micromotion';
+import type {
+  ComplexProfileDwell,
+  MicroMotionBin,
+  MicroMotionDwell,
+} from '@batvu/micromotion';
+import { openTeacherLabel } from '@batvu/capture';
+import type { PairedDwell } from '@batvu/capture';
+
 import {
   DETECTOR_LEVERS,
   badRootDetectorPolicy,
@@ -105,73 +114,28 @@ import {
   resolveDetectorPolicy,
   type DetectorLever,
   type DetectorPolicy,
-  type DwellOptions,
+  type ResolvedDwellOptions,
 } from './detector-policy.js';
 
-// ---------------------------------------------------------------------------
-// Mirrors of packages being written concurrently.
-//
-// TODO(ADR-023): `@batvu/capture` and `@batvu/micromotion` are not yet
-// resolvable from this package — neither appears in its `package.json`, in
-// `tsconfig.json`'s project references, or in the repository's vitest alias
-// table, and this file owns none of those. Importing them by name today breaks
-// `tsc --noEmit` and every test in the repository, so what this file needs from
-// each is mirrored structurally below and injected at the seam. The field names
-// are the ones those packages declare, so at integration each interface is
-// deleted in favour of `import type ... from '@batvu/capture'` /
-// `'@batvu/micromotion'` and any disagreement surfaces as a compile error
-// rather than as a silently different measurement.
-// ---------------------------------------------------------------------------
+export type { ComplexProfileDwell, MicroMotionBin, MicroMotionDwell };
 
-/** `@batvu/micromotion`'s `ComplexProfileDwell`, mirrored. Interleaved `(re, im)`
- *  pairs, ping-major: bin `b` of ping `p` lives at `p*bins*2 + b*2`. */
-export interface ComplexProfileDwell {
-  data: Float32Array | Float64Array;
-  pings: number;
-  bins: number;
-  prfHz: number;
-  lambdaM: number;
-  startRangeM?: number;
-  rangeStepM?: number;
-}
-
-/** `@batvu/micromotion`'s `MicroMotionBin`, mirrored — only the fields this
- *  projection reads. Note what is absent: there is no `presence` field here,
- *  in that package, or anywhere downstream of it. ADR-023 §5. */
-export interface MicroMotionBin {
-  bin: number;
-  rangeM: number | null;
-  status: 'ok' | 'no_return';
-  micromotionBand: number;
-  pValue: number;
-  statistic: number;
-  rateHz: number | null;
-  snrDb: number;
-}
-
-/** `@batvu/micromotion`'s `MicroMotionDwell`, mirrored. */
-export interface MicroMotionDwell {
-  status: 'ok' | 'insufficient_dwell';
-  reason: string | null;
-  dwellS: number;
-  bandBins: number;
-  scoreThreshold: number;
-  /** Peak absolute common-mode displacement over the dwell, metres — the
-   *  sensor's own motion as this dwell measured it. ADR-023 §3 says this is the
-   *  number that can end the enquiry, so the projection reads it. */
-  commonModePeakM: number;
-  bins: MicroMotionBin[];
-}
-
-/** `analyzeDwell` from `@batvu/micromotion`.
+/**
+ * `analyzeDwell` from `@batvu/micromotion`, at the seam this wheel calls.
  *
- *  Injected rather than imported, and REQUIRED with no default. A default would
- *  be a second way to run this wheel, and every path into it has to pass the
- *  same refusals. */
+ * Still INJECTED rather than reached for: {@link DetectorEvaluatorOptions.analyze}
+ * has no default, because a default would be a second way to run this wheel and
+ * every path into it has to pass the same refusals. What the import buys is the
+ * type — a change to that package's signature is a compile error here rather
+ * than a silently different measurement.
+ */
 export type DwellAnalyzer = (
   dwell: ComplexProfileDwell,
-  options: DwellOptions,
+  options: ResolvedDwellOptions,
 ) => MicroMotionDwell;
+
+/** The real analyzer, named so a caller passes it explicitly. Assigning it to
+ *  {@link DwellAnalyzer} is what proves the two packages still fit. */
+export const MICROMOTION_ANALYZER: DwellAnalyzer = analyzeDwell;
 
 /**
  * The label, from the sensor that can see.
@@ -204,15 +168,24 @@ export interface TeacherLabel {
 
 /** ADR-023 §6: consent is per-capture and recorded IN the capture — not a
  *  checkbox in an app's settings and not inherited from the room. A record
- *  without a receipt is refused by {@link AttestedCorpus.attest}, in both directions,
- *  the same way `UltrasonicScan::load` refuses a trust-tier mismatch. */
+ *  without a receipt is refused by {@link AttestedCorpus.attest} AND again by
+ *  {@link evaluateCapture}, in both directions, the same way
+ *  `UltrasonicScan::load` refuses a trust-tier mismatch.
+ *
+ *  Structurally assignable from `@batvu/capture`'s `ConsentReceipt`, which
+ *  carries more (scope, privacy class, validity window) and checks all of it at
+ *  parse time. What the wheel needs to know is narrower: that a receipt is
+ *  present and that it granted. */
 export interface ConsentReceipt {
   granted: boolean;
   /** Opaque receipt identifier. Never a name, never a location. */
   receiptId: string;
 }
 
-/** `@batvu/capture`'s record, mirrored — what this projection reads. */
+/** One capture, as the wheel scores it.
+ *
+ *  Built from a parsed `.presence.jsonl` record by {@link captureFromPairedDwell},
+ *  which is the only place the teacher's seal is opened. */
 export interface CaptureRecord {
   id: string;
   /** The room this was captured in. Splits are BY ROOM; see {@link splitCorpusByRoomAndSubject}. */
@@ -223,7 +196,51 @@ export interface CaptureRecord {
   /** The complex profiles as recorded. Usually longer than any one candidate
    *  policy looks at — the `dwell` lever decides how much is taken. */
   dwell: ComplexProfileDwell;
+  /** The floor the CAPTURE measured, in the units of `dwell.data`. Passed to
+   *  the analyzer in place of its own median-over-bins fallback, which assumes
+   *  most bins of a profile hold no target and is wrong for a dwell pointed
+   *  down a corridor. Omitted only by a fixture that did not measure one. */
+  noiseFloorRms?: number;
   teacher: TeacherLabel;
+}
+
+/**
+ * Turn a parsed `.presence.jsonl` record into a scoreable capture.
+ *
+ * This is the ONE place `openTeacherLabel` is called, and the seal is why it
+ * has to be somewhere visible: `@batvu/capture` keeps the LiDAR range out of
+ * every type that a detector could reach, so that a detector cannot read the
+ * answers out of the corpus it is being tuned on. An evaluator is exactly the
+ * consumer that is allowed to look — it is scoring, not detecting — and the
+ * label goes into {@link CaptureRecord.teacher}, which
+ * {@link evaluateCapture} reads and never hands to the analyzer.
+ *
+ * `bodyRangeM` is the LiDAR range only when ARKit put a body on THIS bearing.
+ * A body somewhere in the scene but not on the beam gives no range bin to look
+ * in, so it is not a positive — see {@link isTeacherPositive}.
+ *
+ * `roomId` is supplied by the caller because the format does not carry one:
+ * a corpus file is a session on a device, and which room that session was in is
+ * curation rather than measurement. TODO(ADR-023): a room identity the capture
+ * itself carries would make the split checkable from the file alone.
+ */
+export function captureFromPairedDwell(
+  record: PairedDwell,
+  options: { roomId: string; id?: string },
+): CaptureRecord {
+  const label = openTeacherLabel(record.label);
+  const onBeam = label.bodyInScene && label.bodyOnBeam === true;
+  return {
+    id: options.id ?? `${record.deviceId}#${record.sequence}`,
+    roomId: options.roomId,
+    // The consent receipt's opaque subject reference IS the subject identity;
+    // there is no name anywhere in the format and none is wanted here.
+    subjectId: label.bodyInScene ? record.consent.subjectRef : null,
+    consent: { granted: true, receiptId: record.consent.receiptId },
+    dwell: record.measurement,
+    noiseFloorRms: record.measurement.noiseFloor,
+    teacher: { bodyInScene: label.bodyInScene, bodyRangeM: onBeam ? label.rangeM : null },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -329,6 +346,18 @@ export class AttestedCorpus {
       if (d.pings <= 0 || d.bins <= 0 || !(d.prfHz > 0) || !(d.lambdaM > 0)) {
         throw new NoEvidenceError(
           `capture '${r.id}' in corpus '${id}' does not carry a usable dwell`,
+        );
+      }
+      // The invariant that makes a buffer a dwell rather than a number of
+      // floats. Without it the analyzer reads off the end three frames into a
+      // run and names the truncated ping count rather than the capture — and a
+      // more forgiving analyzer reads `undefined`, arithmetics it into NaN, and
+      // scores the capture as a correct rejection because `NaN >= threshold` is
+      // false. Checked at the boundary, where the capture id is still in hand.
+      if (d.data.length !== d.pings * d.bins * 2) {
+        throw new NoEvidenceError(
+          `capture '${r.id}' in corpus '${id}' carries ${d.data.length} floats for a ` +
+            `${d.pings}x${d.bins} dwell, which needs ${d.pings * d.bins * 2}`,
         );
       }
       rooms.add(r.roomId);
@@ -510,7 +539,9 @@ export interface CaptureEvaluation {
   roomId: string;
   outcome: CaptureOutcome;
   /** Why, when the outcome is `abstain`. One of `insufficient_dwell`,
-   *  `no_return`, `sensor_motion`, `no_range_geometry`. */
+   *  `no_noise_floor`, `no_return`, `sensor_motion`, `no_range_geometry`,
+   *  `band_above_nyquist` — or the analyzer's own `reason` string, which is
+   *  longer and names the numbers. */
   abstainReason: string | null;
   /** Slow-time seconds actually taken from the record — less than the lever
    *  asked for when the record is shorter than the dwell. */
@@ -531,6 +562,11 @@ export interface CaptureEvaluation {
    *  SNR gate on the abstention axis where it belongs rather than leaving it
    *  invisible. */
   noopShare: number;
+  /** Range bins the analyzer returned a score for. The count the false-alarm
+   *  budget needs: this capture's decision is a maximum over these bins, so its
+   *  per-CAPTURE false-alarm probability is `1 - (1 - alpha)^usableBins`, not
+   *  `alpha`. See {@link aggregateDetectorDetails}. */
+  usableBins: number;
   elapsedMs: number;
 }
 
@@ -567,23 +603,53 @@ export function evaluateCapture(
   policy: DetectorPolicy,
   options: DetectorEvaluatorOptions,
 ): CaptureEvaluation {
+  // ADR-023 §6 makes consent the STRUCTURAL refusal, so it is checked where
+  // every path has to pass rather than only at the corpus boundary.
+  // `AttestedCorpus` holds its records by reference and the engine's `Suite`
+  // erases the brand, so attestation alone leaves three ways to reach a score
+  // over a record whose receipt was removed, replaced or never there.
+  if (record.consent === null || record.consent.granted !== true) {
+    throw new NoEvidenceError(
+      `capture '${record.id}' carries no consent receipt (ADR-023 §6) — refusing to score it`,
+    );
+  }
   const resolved = resolveDetectorPolicy(policy);
   const now = options.now ?? (() => performance.now());
 
   const wantPings = Math.max(1, Math.round(resolved.dwellS * record.dwell.prfHz));
   const dwell = takePings(record.dwell, Math.min(wantPings, record.dwell.pings));
 
-  const started = now();
-  const analysis = options.analyze(dwell, resolved.dwellOptions);
-  const elapsedMs = now() - started;
-
   const base = {
     capture: record.id,
     roomId: record.roomId,
     dwellS: dwell.pings / dwell.prfHz,
-    commonModePeakM: analysis.commonModePeakM,
-    elapsedMs,
+    commonModePeakM: 0,
+    usableBins: 0,
+    elapsedMs: 0,
   };
+
+  // A band that reaches past the capture's own slow-time Nyquist frequency is
+  // not a policy this record can be evaluated under: `analyzeDwell` refuses it
+  // outright, and an uncaught throw would end the RUN rather than this capture.
+  // Declining is the honest outcome — nothing about the detector was measured
+  // here — and it is charged to `noopRate` like every other abstention, so a
+  // policy that can only be evaluated on half the corpus pays for it.
+  const nyquistHz = dwell.prfHz / 2;
+  if (resolved.dwellOptions.bandHz[1] > nyquistHz) {
+    return { ...base, outcome: 'abstain', abstainReason: 'band_above_nyquist', peakScore: 0, noopShare: 1 };
+  }
+
+  const started = now();
+  const analysis = options.analyze(dwell, {
+    ...resolved.dwellOptions,
+    // The capture's own measured floor, when it carried one. The analyzer's
+    // fallback is a median over range bins, which assumes most bins hold no
+    // target — true of a room, false of a corridor.
+    ...(record.noiseFloorRms !== undefined ? { noiseFloor: record.noiseFloorRms } : {}),
+  });
+  const elapsedMs = now() - started;
+  base.commonModePeakM = analysis.commonModePeakM;
+  base.elapsedMs = elapsedMs;
 
   // The dwell was too short to see a period of the slowest rate searched. Not
   // evidence of stillness, so not a miss, and nothing in the profile was
@@ -607,6 +673,7 @@ export function evaluateCapture(
   }
 
   const usable = analysis.bins.filter((b) => b.status === 'ok');
+  base.usableBins = usable.length;
   const peakScore = usable.reduce((m, b) => Math.max(m, b.micromotionBand), 0);
   // Bins the analyzer refused, plus any it did not return at all: range the
   // dwell looked at and left undecided.
@@ -677,24 +744,55 @@ export interface DetectorSuiteScore extends Score {
   hitRate: number;
   /** Over DECIDED teacher-negative captures — the number `regressed` tests. */
   falseAlarmRate: number;
-  /** The alpha the detector claimed while producing these outcomes. */
+  /** The PER-BIN alpha the detector claimed while producing these outcomes. */
   claimedAlpha: number;
-  /** The 3-sigma bound on false alarms the claim implies. */
+  /** Expected false alarms over the decided-empty captures under that claim,
+   *  summed per capture over its own usable bin count. */
+  expectedFalseAlarms: number;
+  /** The 3-sigma bound on false alarms the claim implies. See
+   *  {@link captureFalseAlarmProbability} for why it is not `n*alpha`. */
   falseAlarmBudget: number;
   elapsedMs: number;
 }
 
 /** How far past its own claimed false-alarm rate a policy may measure before it
- *  counts as a hard regression, in standard deviations of the binomial that
+ *  counts as a hard regression, in standard deviations of the distribution that
  *  claim implies.
  *
- *  Under the detector's null, false alarms over `n` decided empty captures are
- *  Binomial(n, alpha), so the bound is `n*alpha + 3*sqrt(n*alpha*(1-alpha))`.
- *  That is arithmetic, and it is deliberately a bound rather than a
- *  hand-picked margin. With a small corpus it is wide and the guard is weak;
- *  that is a true statement about having few captures, and tightening it by
- *  hand would replace the honest weakness with a confident wrong answer. */
+ *  Deliberately a bound rather than a hand-picked margin. With a small corpus it
+ *  is wide and the guard is weak; that is a true statement about having few
+ *  captures, and tightening it by hand would replace the honest weakness with a
+ *  confident wrong answer. */
 const CALIBRATION_SIGMAS = 3;
+
+/**
+ * The probability that one EMPTY capture fires, under the detector's own null.
+ *
+ * `alpha` is the analyzer's PER-BIN false-alarm rate: `micromotionBand = 1 - p`
+ * where `p` is exact for one range bin, so `P(score_b >= 1 - alpha) = alpha` for
+ * each `b`. {@link evaluateCapture} decides a capture by taking a MAXIMUM over
+ * its usable bins, and a maximum over `B` independent tests fires with
+ * probability `1 - (1 - alpha)^B` — Šidák, and at small alpha very nearly
+ * `B*alpha`. At the four-usable-bin, alpha = 0.01 case that is 0.0394, four
+ * times the per-bin figure; over a 64-bin profile it is 0.47.
+ *
+ * Treating `alpha` as the per-capture rate is therefore not a conservative
+ * approximation, it is a budget four to fifty times too small, and `regressed`
+ * is a HARD VETO in the frozen gate. A correctly calibrated detector — the one
+ * ADR-023 §3 chose a classical method to get — would be permanently rejected
+ * by the wheel for being exactly as calibrated as it claims.
+ *
+ * The independence assumption is the honest weak point and it is the same one
+ * the per-bin null rests on: neighbouring range bins share a resolution cell
+ * and common-mode rejection correlates them at O(1/B). Both make the true
+ * per-capture rate somewhat LOWER than this, so the budget errs wide.
+ * TODO(ADR-023): a real corpus measures the empty-room rate directly and
+ * replaces this arithmetic with a number.
+ */
+function captureFalseAlarmProbability(alpha: number, usableBins: number): number {
+  if (!(usableBins > 0)) return 0;
+  return 1 - Math.pow(1 - alpha, usableBins);
+}
 
 /**
  * Aggregate per-capture outcomes into the one `Score` the gate sees.
@@ -745,10 +843,14 @@ export function aggregateDetectorDetails(
   const hitRate = decidedPositives === 0 ? 0 : hits / decidedPositives;
   const falseAlarmRate = decidedNegatives === 0 ? 0 : falseAlarms / decidedNegatives;
 
-  // Youden's J. A detector that never fires and one that always fires both land
-  // on exactly zero, and a detector that decided nothing at all lands there too
-  // without a special case — its abstention is charged once, on `noopRate`.
-  const primary = Math.max(0, hitRate - falseAlarmRate);
+  // Youden's J, unclamped. A detector that never fires and one that always
+  // fires both land on exactly zero, and a detector that decided nothing at all
+  // lands there too without a special case — its abstention is charged once, on
+  // `noopRate`. A detector that is WORSE than chance — firing on empty rooms
+  // and silent on bodies — lands below zero, and it must, because clamping
+  // would score it identically to the one that honestly abstained on
+  // everything, and the gate would then have no way to tell them apart.
+  const primary = hitRate - falseAlarmRate;
   // Not `abstentions / details.length`: a capture the detector decided about
   // may still have left most of its profile undecided, and that is exactly the
   // cost of the SNR gate. See {@link CaptureEvaluation.noopShare}.
@@ -760,9 +862,19 @@ export function aggregateDetectorDetails(
   // runs, so this axis is not academic.
   const costPerWin = elapsedMs / Math.max(primary * 100, 0.5);
 
+  // A Poisson binomial rather than a binomial: each decided-empty capture has
+  // its own firing probability, because each had its own number of usable bins.
+  // Mean and variance add; three standard deviations of the sum is the bound.
+  let expectedFalseAlarms = 0;
+  let falseAlarmVariance = 0;
+  for (const d of details) {
+    if (d.outcome !== 'false_alarm' && d.outcome !== 'correct_rejection') continue;
+    const p = captureFalseAlarmProbability(claimedAlpha, d.usableBins);
+    expectedFalseAlarms += p;
+    falseAlarmVariance += p * (1 - p);
+  }
   const falseAlarmBudget =
-    decidedNegatives * claimedAlpha +
-    CALIBRATION_SIGMAS * Math.sqrt(decidedNegatives * claimedAlpha * (1 - claimedAlpha));
+    expectedFalseAlarms + CALIBRATION_SIGMAS * Math.sqrt(falseAlarmVariance);
   // The hard stop, and the analogue of `evaluator.ts`'s false-free carve: the
   // detector's whole justification over a learned model is that it publishes a
   // calibrated false-alarm rate. A policy that fires more often on empty rooms
@@ -785,6 +897,7 @@ export function aggregateDetectorDetails(
     hitRate,
     falseAlarmRate,
     claimedAlpha,
+    expectedFalseAlarms,
     falseAlarmBudget,
     elapsedMs,
   };
@@ -794,9 +907,13 @@ export function aggregateDetectorDetails(
  * Build the `Evaluator` the flywheel engine takes.
  *
  * The engine's `Suite.items` is `unknown[]`, so the brand on
- * {@link AttestedCorpus} does not survive the trip through it. The emptiness
- * check is therefore repeated here at runtime — the type stops it being
- * written, and this stops it being smuggled.
+ * {@link AttestedCorpus} does not survive the trip through it, and neither does
+ * anything attestation checked. The emptiness check is therefore repeated here
+ * at runtime — the type stops it being written, and this stops it being
+ * smuggled — and consent is re-checked per record inside
+ * {@link evaluateCapture}, which is the one function every path to a score goes
+ * through. Attesting a corpus and then removing a receipt from a record it
+ * holds by reference is not a way past it.
  */
 export function makeDetectorEvaluator(
   options: DetectorEvaluatorOptions,
@@ -855,6 +972,21 @@ export interface DetectorFlywheelReport {
   /** True only when BOTH suites are captures from a device. A run on fixtures
    *  says so here and stamps its bundle `SYNTHETIC`. */
   evidenceIsReal: boolean;
+  /** The best `primary` any generation measured on the holdout.
+   *
+   *  Reported because a lift curve of zeros is BYTE-INDISTINGUISHABLE from a
+   *  converged one — the failure this module's header is built around — and
+   *  refusing an empty corpus does not reach it: a non-empty corpus on which
+   *  the detector never decided anything produces exactly that bundle, with a
+   *  gate fingerprint and a verified replay chain attached. Refusing the run
+   *  would be wrong, because a genuinely converged search reports the same
+   *  shape and is a legitimate result. So the difference is published instead
+   *  of being left for a reader to infer from a flat array. */
+  bestPrimary: number;
+  /** What a reader has to know before quoting anything above. Empty when there
+   *  is nothing to say — never a substitute for the numbers, and never
+   *  suppressed because a run looked healthy. */
+  caveats: string[];
   corpus: {
     holdoutCaptures: number;
     anchorCaptures: number;
@@ -926,6 +1058,21 @@ export async function runDetectorFlywheel(
   }
 
   const verdict = verifyReplayBundle(result.replayBundle);
+  const primaries = result.liftCurve.map((p) => p.primary);
+  const bestPrimary = primaries.length === 0 ? 0 : Math.max(...primaries);
+  const caveats: string[] = [];
+  if (!(bestPrimary > 0)) {
+    caveats.push(
+      `no generation measured a primary above zero over ${holdout.records.length} holdout captures: ` +
+        `the lift curve is flat because nothing was detected, not because the search converged`,
+    );
+  }
+  if (!evidenceIsReal) {
+    caveats.push(
+      `provenance is ${holdout.provenance}/${anchor.provenance}, not DEVICE/DEVICE — ` +
+        `these scores were measured against fixtures and say nothing about a room`,
+    );
+  }
   return {
     result,
     replayVerified: verdict.pass,
@@ -935,6 +1082,8 @@ export async function runDetectorFlywheel(
     finalPolicy: result.finalPolicy,
     promotionNotes: notes,
     evidenceIsReal,
+    bestPrimary,
+    caveats,
     corpus: {
       holdoutCaptures: holdout.records.length,
       anchorCaptures: anchor.records.length,

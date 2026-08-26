@@ -47,6 +47,8 @@
 // TODO(ADR-023): the edges a real corpus supports replace these rungs. Until
 // then they are a starting point that has never met a room.
 
+import type { DwellOptions } from '@batvu/micromotion';
+
 import { encodeLever } from './policy.js';
 
 /** A detector policy is the same opaque `Record<string, string>` the engine
@@ -75,33 +77,21 @@ const NUMERIC = new Set([
 ]);
 
 /**
- * `@batvu/micromotion`'s `DwellOptions`, mirrored.
+ * `@batvu/micromotion`'s `DwellOptions` with nothing left to a default.
  *
- * TODO(ADR-023): `@batvu/micromotion` is being written concurrently and is not
- * yet a resolvable workspace dependency of this package — it is absent from
- * `tsconfig.json`'s references, from `package.json`, and from the vitest alias
- * table, none of which this file owns. Importing it by name today would break
- * `tsc --noEmit` and every test in the repository, so the shape it is called
- * with is mirrored here structurally instead. At integration this interface is
- * deleted and `import type { DwellOptions } from '@batvu/micromotion'` takes
- * its place; the field names are already the ones that package declares, so the
- * swap is mechanical and a mismatch is a compile error rather than a silent
- * disagreement.
+ * DERIVED from that package's own type rather than restated, so a field it
+ * renames is a compile error here instead of a lever that silently stops
+ * reaching the analyzer. Every optional becomes required for the reason
+ * {@link resolveDetectorPolicy} gives: a wheel that inherits a detector
+ * parameter from a default is a wheel whose receipts do not describe what ran.
+ *
+ * `noiseFloor` is the exception and stays optional, because it is not a policy
+ * lever at all — it is a property of the capture, carried in the record by
+ * `@batvu/capture` and passed through by {@link evaluateCapture}.
  */
-export interface DwellOptions {
-  /** `[low, high]` in hertz — the band searched, and the band the false-alarm
-   *  rate is exact over. */
-  bandHz: readonly [number, number];
-  /** Per-ping SNR below which a bin is refused as `no_return`. */
-  minSnrDb: number;
-  /** Cycles of the SLOWEST searched rate that must fit in the dwell before any
-   *  score is produced. */
-  minCycles: number;
-  /** False-alarm rate the reported thresholds are quoted at. */
-  alpha: number;
-  /** Subtract the across-bin common-mode phase. */
-  commonModeRejection: boolean;
-}
+export type ResolvedDwellOptions = Required<Omit<DwellOptions, 'noiseFloor'>> & {
+  noiseFloor?: number;
+};
 
 export interface ResolvedDetectorPolicy {
   /** Seconds of slow time to take from each capture. Capture-side, not a
@@ -109,7 +99,7 @@ export interface ResolvedDetectorPolicy {
    *  decides how much of it this candidate is allowed to look at. */
   dwellS: number;
   /** What the analyzer is called with. */
-  dwellOptions: DwellOptions;
+  dwellOptions: ResolvedDwellOptions;
   /** Refuse a dwell whose measured `commonModePeakM` exceeds this, in metres.
    *
    *  The second half of "common-mode rejection strength", and the half that is
@@ -211,6 +201,9 @@ export function resolveDetectorPolicy(policy: DetectorPolicy): ResolvedDetectorP
   if (!(alpha > 0) || !(alpha < 1)) {
     throw new Error(`batvu/flywheel: alpha must lie strictly in (0, 1), got ${alpha}`);
   }
+  if (!(Number(fields.minSnrDb) >= 0)) {
+    throw new Error(`batvu/flywheel: minSnrDb must be non-negative, got ${fields.minSnrDb}`);
+  }
   if (!(commonModeMaxPeakM > 0)) {
     throw new Error(`batvu/flywheel: commonModeMaxPeakM must be positive, got ${commonModeMaxPeakM}`);
   }
@@ -248,9 +241,17 @@ export function resolveDetectorPolicy(policy: DetectorPolicy): ResolvedDetectorP
  *   no-op rate must strictly improve — the most room it will ever have.
  * - **one cycle of the slowest rate.** A periodogram cannot see a period it has
  *   observed once; asking for one is asking for the leakage skirt.
- * - **a band from 0.2 to 8 Hz.** Nearly everything the pulse rate can resolve,
+ * - **a band from 0.2 to 7 Hz.** Nearly everything the pulse rate can resolve,
  *   so K is enormous, Fisher's g is diluted across hundreds of ordinates, and
- *   an oscillating fan is inside the search.
+ *   an oscillating fan is inside the search. Not WIDER than that, and the
+ *   ceiling is arithmetic rather than taste: BatVu pings at 15 Hz, so the
+ *   slow-time Nyquist frequency is 7.5 Hz and `analyzeDwell` refuses a band
+ *   that reaches past it outright. A root policy the analyzer throws on is not
+ *   a bad root, it is a broken one — the wheel would die on generation zero
+ *   rather than start from something defensibly poor.
+ *   TODO(ADR-023): a capture taken at a lower PRF has a lower ceiling still,
+ *   and {@link evaluateCapture} abstains rather than crashing when a rung and a
+ *   record disagree. Which edges are right is what the corpus is for.
  * - **alpha = 0.5.** A stated false-alarm rate of one in two, which is a coin.
  * - **a 0 dB SNR gate.** At 0 dB the per-ping phase standard deviation is 0.71
  *   rad, unwrapping fails, and the exponential null the p-value comes from is
@@ -261,7 +262,7 @@ export function resolveDetectorPolicy(policy: DetectorPolicy): ResolvedDetectorP
 export function badRootDetectorPolicy(): DetectorPolicy {
   return {
     dwell: encodeLever({ dwellS: 2, minCycles: 1 }),
-    band: encodeLever({ bandLowHz: 0.2, bandHighHz: 8.0 }),
+    band: encodeLever({ bandLowHz: 0.2, bandHighHz: 7.0 }),
     periodicity: encodeLever({ alpha: 0.5, minSnrDb: 0 }),
     commonMode: encodeLever({ commonModeRejection: 'off', commonModeMaxPeakM: 1.0 }),
   };
@@ -301,7 +302,7 @@ export const DETECTOR_LADDERS: Record<DetectorLever, string[]> = {
     encodeLever({ dwellS: 45, minCycles: 4 }),
   ],
   band: [
-    encodeLever({ bandLowHz: 0.2, bandHighHz: 8.0 }),
+    encodeLever({ bandLowHz: 0.2, bandHighHz: 7.0 }),
     encodeLever({ bandLowHz: 0.15, bandHighHz: 4.0 }),
     encodeLever({ bandLowHz: 0.12, bandHighHz: 2.0 }),
     encodeLever({ bandLowHz: 0.1, bandHighHz: 1.2 }),

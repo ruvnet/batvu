@@ -203,12 +203,12 @@ prevent.
 
 | constant | value | why |
 | --- | --- | --- |
-| `MAX_LINE_BYTES` | 8 MiB | derived from `MAX_DWELL_SAMPLES`, not chosen |
+| `MAX_LINE_BYTES` | 8454144 | `2 * MAX_DWELL_SAMPLES * 16 + 64 KiB` — derived, written as the derivation, and there is a test that encodes the worst case |
 | `MAX_RECORDS` | 4096 | days of capture at tens of seconds a dwell |
 | `MAX_DWELL_PINGS` | 4096 | 273 s at 15 Hz; ADR-023 §3 asks for tens of seconds |
-| `MAX_PROFILE_BINS` | 1024 | 7.3 m at BatVu's 7.1 mm step, past what the link budget reaches |
+| `MAX_PROFILE_BINS` | 1280 | 4.6 m at BatVu's 3.6 mm step (`c/2fs` at 48 kHz), past the 4.3 m ADR-022 measured as the ragged edge |
 | `MAX_DWELL_SAMPLES` | 262144 | the product, because the factors multiply and the byte cap has to hold |
-| `MIN_PRF_HZ` / `MAX_PRF_HZ` | 1 / 1000 | the floor is what makes the skew bound finite; the ceiling is the chirp's own length |
+| `MIN_PRF_HZ` / `MAX_PRF_HZ` | 1 / 200 | the floor is what makes the skew bound finite; the ceiling is `1/durationS` at the 5 ms sweep. A real scan is bound far tighter by `minPriSeconds()` — 28.6 Hz at 6 m — which a file cannot check |
 | `MAX_CLOCK_SKEW_S` | 1 | the backstop; the binding bound is `1/prf_hz` |
 | `MAX_CONSENT_WINDOW_S` | 86400 | a policy choice, stated as one |
 | `MAX_ID_BYTES` | 256 | as `@batvu/field` and `rufield-adapters` |

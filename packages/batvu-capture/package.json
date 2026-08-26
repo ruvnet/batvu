@@ -1,17 +1,29 @@
 {
   "name": "@batvu/capture",
   "version": "0.1.0",
-  "description": "BatVu paired-capture corpus — the `.presence.jsonl` record that carries a dwell of complex range profiles alongside the LiDAR range and body report that labels it, with a per-capture consent receipt the parser refuses to do without.",
+  "description": "BatVu paired-capture corpus \u2014 the `.presence.jsonl` record that carries a dwell of complex range profiles alongside the LiDAR range and body report that labels it, with a per-capture consent receipt the parser refuses to do without.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "files": ["dist", "README.md"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "license": "MIT",
   "scripts": {
     "build": "tsc",
     "lint": "tsc --noEmit",
-    "lint:tests": "tsc --noEmit --strict --noUncheckedIndexedAccess --target ES2022 --lib ES2022,DOM --module ESNext --moduleResolution Bundler --skipLibCheck --types node src/__tests__/corpus.test.ts"
+    "lint:tests": "tsc --noEmit --strict --noUncheckedIndexedAccess --target ES2022 --lib ES2022,DOM --module ESNext --moduleResolution Bundler --skipLibCheck --types node __tests__/corpus.test.ts"
   },
-  "devDependencies": { "@types/node": "^20.11.0", "typescript": "^5.4.0", "vitest": "^2.0.0" }
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  }
 }

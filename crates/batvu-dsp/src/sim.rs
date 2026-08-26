@@ -64,8 +64,13 @@ impl Breathing {
         // arithmetic. `sin` of a large enough argument is still finite, but
         // `rate_hz * t_s` is not guaranteed to be — and `0.0 * NaN` is `NaN`,
         // which would let a nonsensical rate poison a target that is not
-        // supposed to be moving at all. Every static target in the crate goes
-        // through this line.
+        // supposed to be moving at all.
+        //
+        // The rendering path does NOT reach this line for a static target:
+        // `Target::at` short-circuits on the same condition one level up, and
+        // that is the short-circuit the golden-record digest pins. This one
+        // defends the public `displacement_m`/`range_at` pair, which a caller
+        // can reach with any `Breathing` it likes.
         if self.amplitude_m == 0.0 {
             return 0.0;
         }
@@ -706,28 +711,51 @@ mod tests {
 
     #[test]
     fn zero_amplitude_is_a_static_target_however_absurd_the_rate() {
-        // The hard zero in `displacement_m`, tested where it earns its keep:
         // `rate_hz * t_s` overflows to infinity here, `sin` of that is NaN, and
         // `0.0 * NaN` is NaN — which would silently delete the target rather
         // than leave it where it was.
+        //
+        // There are TWO short-circuits on that condition and the rendering path
+        // only reaches the outer one, so both are asserted here separately.
+        let absurd = Breathing {
+            amplitude_m: 0.0,
+            rate_hz: 3.0e38,
+            phase_rad: 1.0,
+        };
+
+        // The inner one, in `displacement_m`, reached through the public pair.
+        assert_eq!(absurd.displacement_m(1.0e30), 0.0);
+        let t = Target::breathing(0.9, 0.6, absurd);
+        assert_eq!(t.range_at(1.0e30), 0.9);
+
+        // The outer one, in `Target::at`, which is what `render_at` goes
+        // through and what keeps a static scene bit-for-bit.
         let spec = ChirpSpec::default();
         let cfg = SceneConfig::default();
         let still = render(&spec, &[Target::point(0.9, 0.6)], &cfg);
-        let told_to_breathe_by_zero = render_at(
-            &spec,
-            &[Target::breathing(
-                0.9,
-                0.6,
-                Breathing {
-                    amplitude_m: 0.0,
-                    rate_hz: 3.0e38,
-                    phase_rad: 1.0,
-                },
-            )],
-            &cfg,
-            1.0e30,
-        );
+        let told_to_breathe_by_zero = render_at(&spec, &[t], &cfg, 1.0e30);
         assert_eq!(still, told_to_breathe_by_zero);
+    }
+
+    #[test]
+    fn freezing_a_snapshot_a_second_time_does_not_move_it_again() {
+        // `Target::at` clears the motion on the way out. Without that, a
+        // snapshot would still carry its amplitude and a second `at` would add
+        // a second displacement to a range that already holds one — and every
+        // caller that passes a target through two stages would be reporting a
+        // target twice as far from its mean as the scene put it.
+        let motion = Breathing {
+            amplitude_m: 0.02,
+            rate_hz: 0.25,
+            phase_rad: 0.0,
+        };
+        let t = Target::breathing(2.0, 0.7, motion);
+        let quarter = 0.25 / motion.rate_hz;
+        let once = t.at(quarter);
+        assert!((once.range_m - 2.02).abs() < 1e-6, "{}", once.range_m);
+        assert_eq!(once.breathing.amplitude_m, 0.0);
+        assert_eq!(once.at(quarter).range_m, once.range_m);
+        assert_eq!(once.at(0.0).range_m, once.range_m);
     }
 
     #[test]
@@ -779,8 +807,11 @@ mod tests {
         );
 
         // Scaled back to the millimetre, which is the form the ADR reads off
-        // this relation: ~0.73 rad, ~42 degrees.
-        let per_mm = expect / 10.0;
+        // this relation: ~0.73 rad, ~42 degrees. Scaled off the MEASURED `dphi`
+        // rather than off `expect`, so these two asserts read the simulator's
+        // delay as well; dividing `expect` by ten would only be dividing the
+        // line above by ten.
+        let per_mm = dphi / 10.0;
         assert!((per_mm - 0.733).abs() < 0.005, "{per_mm} rad per mm");
         assert!(
             (per_mm.to_degrees() - 42.0).abs() < 0.5,

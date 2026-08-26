@@ -7,8 +7,10 @@
   "references": [
     { "path": "../batvu-core" },
     { "path": "../batvu-sim" },
-    { "path": "../batvu-horizon" }
+    { "path": "../batvu-horizon" },
+    { "path": "../batvu-micromotion" },
+    { "path": "../batvu-capture" }
   ],
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "__tests__"]
+  "exclude": ["node_modules", "dist", "__tests__", "src/__tests__"]
 }

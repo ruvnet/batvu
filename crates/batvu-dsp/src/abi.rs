@@ -566,8 +566,16 @@ pub extern "C" fn bv_plan_env_len(handle: i32) -> usize {
 
 /// Pointer to the plan's complex profile — `(re, im)` interleaved, two floats
 /// per bin, one bin per element of the envelope buffer, so `iq[2*i]` and
-/// `iq[2*i + 1]` are the parts whose modulus is `env[i]` wherever blast
-/// cancellation has not been applied on top of `env`.
+/// `iq[2*i + 1]` describe the same lag as `env[i]`.
+///
+/// `|iq[i]|` equals `env[i]` bit for bit ONLY when the plan was created with
+/// `"blastCancellation": false`. That is not the shipping default, and the
+/// qualifier is not a corner case: `MatchedFilter`'s autocorrelation runs
+/// `16 * pulse_len` samples, which at the default config covers every lag a
+/// reported profile occupies, so with cancellation on the two buffers differ at
+/// EVERY bin. `bv_plan_process` reports `blastCancelled` in its JSON for
+/// exactly this reason — a host must read it rather than assume the buffers
+/// agree.
 ///
 /// Null unless the plan's config carried `"complexProfile": true`; see the
 /// memory-growth contract at the top of this module for why it is not a runtime
@@ -611,7 +619,18 @@ pub extern "C" fn bv_plan_process(handle: i32) -> *const u8 {
             for v in &mut p.env[n..] {
                 *v = 0.0;
             }
-            let out = profile_to_json(&prof, false);
+            // `envLen` from `profile_to_json` is the PROFILE's length, which is
+            // what the one-shot `process` op returns. The plan's buffer is
+            // fixed at create time and only `n` floats of it were written, so
+            // the plan surface overrides the field with what it actually
+            // published. A host sizing a `Float32Array` from the JSON would
+            // otherwise read past the envelope whenever the profile is the
+            // longer of the two.
+            let out = with_field(
+                profile_to_json(&prof, false),
+                "envLen",
+                Value::num(n as f64),
+            );
             let Plan {
                 pipeline,
                 input,
@@ -621,6 +640,14 @@ pub extern "C" fn bv_plan_process(handle: i32) -> *const u8 {
             let out = match cx {
                 Some(cx) => {
                     cx.fill(pipeline.config(), input, prof.t0, n);
+                    // Whether `env` has had the blast skirt subtracted from it,
+                    // which is the one thing that makes `|iq[i]| != env[i]`.
+                    // See `bv_plan_iq_ptr`.
+                    let out = with_field(
+                        out,
+                        "blastCancelled",
+                        Value::Bool(pipeline.config().blast_cancellation),
+                    );
                     with_field(out, "iqLen", Value::num((2 * n) as f64))
                 }
                 None => out,
@@ -652,6 +679,16 @@ mod tests {
 
     fn call(req: &str) -> Value {
         json::parse(&eval_json(req)).expect("response must be valid json")
+    }
+
+    /// Read one of the length-prefixed buffers the plan surface returns.
+    fn read_packed(ptr: *const u8) -> String {
+        unsafe {
+            let len = u32::from_le_bytes([*ptr, *ptr.add(1), *ptr.add(2), *ptr.add(3)]) as usize;
+            std::str::from_utf8(std::slice::from_raw_parts(ptr.add(4), len))
+                .unwrap()
+                .to_string()
+        }
     }
 
     #[test]
@@ -789,15 +826,7 @@ mod tests {
             dst.copy_from_slice(&rec);
         }
 
-        let out_ptr = bv_plan_process(handle);
-        let out = unsafe {
-            let len =
-                u32::from_le_bytes([*out_ptr, *out_ptr.add(1), *out_ptr.add(2), *out_ptr.add(3)])
-                    as usize;
-            std::str::from_utf8(std::slice::from_raw_parts(out_ptr.add(4), len))
-                .unwrap()
-                .to_string()
-        };
+        let out = read_packed(bv_plan_process(handle));
         let plan_res = json::parse(&out).unwrap();
         let plan_ranges: Vec<f32> = plan_res
             .get("detections")
@@ -951,19 +980,138 @@ mod tests {
         let iq = full.get("iq").unwrap().as_arr().unwrap();
         assert_eq!(iq.len(), 2 * env.len(), "two floats per range bin");
 
-        // JSON round-trips f32 through f64 decimal, so this comparison is
-        // relative rather than bitwise — the bitwise one lives on the plan
-        // surface, which is where the floats never leave wasm memory.
+        // The same record through the PLAN surface, which is the comparison
+        // this test's name promises: two independent code paths, two
+        // independent `MatchedFilter`s, one answer.
+        let plan_cfg = r#"{"blastCancellation":false,"complexProfile":true}"#;
+        let handle = bv_plan_create(plan_cfg.as_ptr(), plan_cfg.len(), record_len);
+        assert!(handle >= 0);
+        unsafe {
+            let dst = std::slice::from_raw_parts_mut(bv_plan_input_ptr(handle), record_len);
+            dst.copy_from_slice(&rec);
+        }
+        bv_plan_process(handle);
+        let plan_iq_len = bv_plan_iq_len(handle);
+        let plan_iq = unsafe { std::slice::from_raw_parts(bv_plan_iq_ptr(handle), plan_iq_len) };
+
+        // Bitwise, not within a tolerance. `Value::f32_arr` widens f32 to f64
+        // exactly, `to_string` writes the shortest decimal that round-trips a
+        // f64, and `as_f32` narrows the parse back — so nothing is lost on the
+        // way through JSON and a tolerance here would only be licensing a
+        // difference that has no way to arise.
+        let mut turning = 0usize;
         for (i, e) in env.iter().enumerate() {
             let e = e.as_f32().unwrap();
             let r = iq[2 * i].as_f32().unwrap();
             let m = iq[2 * i + 1].as_f32().unwrap();
-            let mag = (r * r + m * m).sqrt();
-            assert!(
-                (mag - e).abs() <= 1e-6 * e.abs().max(1e-6),
-                "bin {i}: |{r} + {m}j| = {mag}, env says {e}"
+            assert_eq!(
+                (r * r + m * m).sqrt().to_bits(),
+                e.to_bits(),
+                "bin {i}: |{r} + {m}j| against env {e}"
             );
+            if 2 * i + 1 < plan_iq_len {
+                assert_eq!(r.to_bits(), plan_iq[2 * i].to_bits(), "re of bin {i}");
+                assert_eq!(m.to_bits(), plan_iq[2 * i + 1].to_bits(), "im of bin {i}");
+            }
+            if r.abs() > 1e-6 && m.abs() > 1e-6 {
+                turning += 1;
+            }
         }
+        // Without this, a `complex_profile` that emitted `(|z|, 0)` — phase
+        // deleted outright, which is the defect ADR-023 §1 exists to prevent —
+        // would satisfy every assertion above, because `sqrt(re² + 0)` is the
+        // envelope.
+        assert!(turning > 1_000, "only {turning} bins carried a phase");
+        bv_plan_destroy(handle);
+    }
+
+    #[test]
+    fn under_the_shipping_defaults_the_envelope_is_not_the_modulus_of_the_iq() {
+        // The other direction of `bv_plan_iq_ptr`'s contract, and the one every
+        // default plan is in. `blastCancellation` is on by default and edits
+        // `env` after the matched filter; `iq` is the raw compression. A host
+        // that assumed the two agreed would be reading the blast skirt back
+        // into a range it had been told was cancelled, so the divergence is
+        // pinned here and reported in the JSON rather than left to a comment.
+        let record_len = 24_000usize;
+        let cfg = r#"{"maxRangeM":6,"complexProfile":true}"#;
+        let handle = bv_plan_create(cfg.as_ptr(), cfg.len(), record_len);
+        assert!(handle >= 0);
+
+        let sonar = SonarConfig::default();
+        assert!(sonar.blast_cancellation, "this test is about the default");
+        let scene = SceneConfig {
+            record_len,
+            noise_rms: 5e-4,
+            ..Default::default()
+        };
+        let rec = sim::render(&sonar.chirp, &[Target::wall(2.6, 0.9)], &scene);
+        unsafe {
+            let dst = std::slice::from_raw_parts_mut(bv_plan_input_ptr(handle), record_len);
+            dst.copy_from_slice(&rec);
+        }
+        let out = json::parse(&read_packed(bv_plan_process(handle))).unwrap();
+        assert_eq!(out.get("blastCancelled").unwrap().as_bool(), Some(true));
+        let env_len = out.get("envLen").unwrap().as_usize().unwrap();
+        assert!(env_len > 1_000, "only {env_len} bins, this proves nothing");
+        assert!(
+            env_len <= bv_plan_env_len(handle),
+            "JSON envLen {env_len} describes more envelope than the plan published \
+             ({}) — a host sizing a view from it would read past the buffer",
+            bv_plan_env_len(handle)
+        );
+        assert_eq!(out.get("iqLen").unwrap().as_usize().unwrap(), 2 * env_len);
+
+        let env = unsafe { std::slice::from_raw_parts(bv_plan_env_ptr(handle), env_len) };
+        let iq = unsafe { std::slice::from_raw_parts(bv_plan_iq_ptr(handle), 2 * env_len) };
+        let mut agreed = 0usize;
+        let mut nonzero = 0usize;
+        for (i, e) in env.iter().enumerate() {
+            if *e == 0.0 {
+                continue;
+            }
+            nonzero += 1;
+            if (iq[2 * i] * iq[2 * i] + iq[2 * i + 1] * iq[2 * i + 1])
+                .sqrt()
+                .to_bits()
+                == e.to_bits()
+            {
+                agreed += 1;
+            }
+        }
+        assert!(nonzero > 1_000, "only {nonzero} bins carried a profile");
+        assert_eq!(
+            agreed, 0,
+            "{agreed} of {nonzero} bins agreed — the autocorrelation subtraction \
+             is supposed to reach all of them"
+        );
+        bv_plan_destroy(handle);
+    }
+
+    #[test]
+    fn the_scene_api_cannot_render_a_breathing_target() {
+        // ADR-023 §4's barrier, asserted rather than implied. `targets_from_json`
+        // hard-codes `Breathing::STATIC`, so a scene that asks for motion gets a
+        // static target and two renders at different slow times are identical.
+        // The day somebody adds a `breathing` field to the parser, this fails.
+        let targets = targets_from_json(Some(
+            &json::parse(
+                r#"[{"rangeM":2.0,"reflectivity":0.7,
+                     "breathing":{"amplitudeM":0.01,"rateHz":0.25,"phaseRad":0.0}}]"#,
+            )
+            .unwrap(),
+        ));
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].breathing.amplitude_m, 0.0);
+        assert_eq!(targets[0].breathing.rate_hz, 0.0);
+
+        let spec = ChirpSpec::default();
+        let cfg = SceneConfig::default();
+        assert_eq!(
+            sim::render_at(&spec, &targets, &cfg, 0.0),
+            sim::render_at(&spec, &targets, &cfg, 1.0),
+            "the scene API rendered slow-time motion"
+        );
     }
 
     #[test]

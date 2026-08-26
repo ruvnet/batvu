@@ -169,6 +169,8 @@ stop changing the map mean this vantage point is exhausted.
 | `@batvu/flywheel` | Policy evolution with signed, replayable promotion receipts |
 | `@batvu/field` | The scan on RuField MFS's wire — `.ultrasonic.jsonl`, and the `FieldEvent` it projects to |
 | `@batvu/memory` | A heading-invariant room signature, and the store that answers "have I been here before?" |
+| `@batvu/micromotion` | Slow-time phase per range bin over a dwell, with a periodicity statistic whose false-alarm rate is derived. Reports `micromotion_band`, never `presence` ([ADR-023](docs/adr/ADR-023-the-teacher-rides-along.md)) |
+| `@batvu/capture` | The paired-capture record: a dwell of complex profiles alongside the LiDAR range and body report that labels it, with a per-capture consent receipt the parser refuses to do without |
 | `@batvu/web` | The iPhone app. 28 KB of JavaScript, no framework |
 
 Everything but the transducer runs on a Linux CI box, which is the point of

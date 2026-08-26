@@ -88,17 +88,6 @@ export const CONSENT_SCOPE = 'batvu.micromotion.corpus.v1';
  *  downstream lets onto a network. */
 export const CONSENT_PRIVACY_CLASS = 'P4';
 
-/** Maximum UTF-8 bytes in one line, checked before `JSON.parse` sees it.
- *
- *  Far larger than `@batvu/field`'s 256 KiB because the unit is different: that
- *  format writes one 256-bin magnitude profile per line, this one writes an
- *  entire dwell of complex profiles. The number is derived from the two caps
- *  below rather than chosen — `MAX_DWELL_SAMPLES` complex samples at the ~22
- *  bytes a `(re, im)` pair costs at seven significant figures is ~5.8 MB, and
- *  this is that with room for the metadata and for a JSON writer less frugal
- *  than `encodeLine`. */
-export const MAX_LINE_BYTES = 8_388_608;
-
 /** Maximum dwells in one corpus file. At tens of seconds a dwell this is days of
  *  capture; past it, the file is not a session. */
 export const MAX_RECORDS = 4096;
@@ -112,11 +101,21 @@ export const MAX_DWELL_PINGS = 4096;
 
 /** Maximum range bins in one profile.
  *
- *  Quarter of `@batvu/field`'s cap, and the reduction is deliberate: a dwell
- *  stares down one bearing, so the bins that matter are the ones the link budget
- *  reaches, and 1024 bins at BatVu's 7.1 mm range step is 7.3 m — past the ~4.5 m
- *  the budget actually reaches. */
-export const MAX_PROFILE_BINS = 1024;
+ *  A dwell stares down one bearing, so the bins that matter are the ones the
+ *  link budget reaches. Both halves of that are numbers this repository already
+ *  holds, and neither is a guess:
+ *
+ *  - the range step is `c/(2*fs)` — `PipelineConfig::range_per_sample` in
+ *    `crates/batvu-dsp/src/pipeline.rs` — which at the 48 kHz ADR-003 fixes as
+ *    non-negotiable is 343/(2*48000) = 3.6 mm;
+ *  - the link budget was MEASURED in ADR-022 at "reliable to about 3.8 m,
+ *    ragged to 4.3, nothing beyond", replacing an optimistic 4-5 m that turned
+ *    out to be a simulator artefact.
+ *
+ *  1280 bins is 4.6 m, which is past the ragged edge — so the cap never
+ *  truncates a profile the sonar could have heard, and does not pretend to
+ *  reach further than ADR-022 says it does. */
+export const MAX_PROFILE_BINS = 1280;
 
 /** Maximum `pings * bins` in one dwell.
  *
@@ -127,6 +126,45 @@ export const MAX_PROFILE_BINS = 1024;
  *  full profile — which is the correct trade to be forced to make explicitly,
  *  since the interesting range bin is known before the dwell starts. */
 export const MAX_DWELL_SAMPLES = 262_144;
+
+/** Worst-case UTF-8 bytes one `(re, im)` component costs on the wire, separator
+ *  included.
+ *
+ *  Measured off the encoder rather than estimated. `significant(v, 7)` produces
+ *  at most seven significant figures, and `JSON.stringify` switches a number to
+ *  exponential notation only below 1e-6 — so the widest form it can emit is a
+ *  negative value just above that threshold, written in full:
+ *  `-0.000001234567` is 15 characters. One comma makes 16.
+ *
+ *  The obvious estimate is ~11 characters, and it is wrong for exactly the
+ *  numbers this format exists to carry: a faint bin's phasor components ARE
+ *  small negative values near 1e-6. See `significant` in `corpus.ts`. */
+const WORST_CASE_NUMBER_BYTES = 16;
+
+/** Everything in a line that is not the phasor array, in bytes.
+ *
+ *  Chosen, not derived, and generous by two orders of magnitude: the whole rest
+ *  of the record is six identifiers capped at `MAX_ID_BYTES` each, a 16-value
+ *  pose, six intrinsics and about forty short keys, which is a few kilobytes.
+ *  The point of the allowance is that {@link MAX_LINE_BYTES} stays a bound on
+ *  the array and does not have to be re-derived every time a field is added. */
+const METADATA_ALLOWANCE_BYTES = 65_536;
+
+/** Maximum UTF-8 bytes in one line, checked before `JSON.parse` sees it.
+ *
+ *  Far larger than `@batvu/field`'s 256 KiB because the unit is different: that
+ *  format writes one 256-bin magnitude profile per line, this one writes an
+ *  entire dwell of complex profiles.
+ *
+ *  DERIVED, and written as the derivation so it cannot drift from it. A dwell at
+ *  `MAX_DWELL_SAMPLES` carries twice that many numbers, each costing at most
+ *  `WORST_CASE_NUMBER_BYTES`; the rest of the record fits in the allowance. So a
+ *  dwell that satisfies every other cap in this file always encodes, and
+ *  `encodeLine` refusing one would be a bug in one of these three numbers rather
+ *  than a caller's mistake. There is a test that builds the worst case and
+ *  encodes it. */
+export const MAX_LINE_BYTES =
+  MAX_DWELL_SAMPLES * 2 * WORST_CASE_NUMBER_BYTES + METADATA_ALLOWANCE_BYTES;
 
 /** Maximum UTF-8 bytes in an identifier. Mirrors `@batvu/field`'s `MAX_ID_BYTES`
  *  and `rufield-adapters`' before it. */
@@ -140,11 +178,22 @@ export const MAX_RANGE_M = 50;
  *  The floor is not a physical claim, it is what makes the clock bound below
  *  finite: at 1 Hz one pulse repetition interval is one second, which is already
  *  the loosest reconciliation ADR-023 §2 describes ("the same phone, in the same
- *  second"). The ceiling is the chirp itself — BatVu's sweep is milliseconds
- *  long and cannot repeat faster than it lasts. BatVu ships 15. */
+ *  second").
+ *
+ *  The ceiling is the chirp itself, and the arithmetic is done rather than
+ *  gestured at: BatVu's sweep is `durationS = 0.005` s
+ *  (`packages/batvu-core/src/config.ts`), a pulse cannot repeat faster than it
+ *  lasts, so 200 Hz.
+ *
+ *  That is the bound a FILE can be held to, and it is far looser than the bound
+ *  any real scan is under. The binding one is the second-time-around echo:
+ *  `minPriSeconds()` in the same file gives `2*maxRangeM/c + durationS`, which
+ *  for the shipping 6 m configuration is 35 ms — a ceiling of 28.6 Hz. A record
+ *  does not carry the max range it was configured for, so nothing here can
+ *  check it. BatVu ships 15. */
 export const MIN_PRF_HZ = 1;
 /** See `MIN_PRF_HZ`. */
-export const MAX_PRF_HZ = 1000;
+export const MAX_PRF_HZ = 200;
 
 /** Hard ceiling on the residual clock skew a pair may declare, seconds.
  *
@@ -228,11 +277,24 @@ export interface CorpusClockLine {
   ultrasonic_unix_s: number;
   /** `RuViewLiDARFrame.Provenance.timestampNs`, verbatim and unconverted. */
   lidar_timestamp_ns: number;
-  /** Which origin `lidar_timestamp_ns` is measured from. `arkit_uptime` is what
-   *  the shipping Swift produces (`ARFrame.timestamp` is system uptime);
-   *  `unix_epoch` is there for a future capture path that has already done the
-   *  conversion, and it does not exempt it from carrying an offset. */
-  lidar_domain: 'arkit_uptime' | 'unix_epoch';
+  /** Which origin `lidar_timestamp_ns` is measured from.
+   *
+   *  One value, and the singleton is deliberate. `arkit_uptime` is what the
+   *  shipping Swift produces (`ARFrame.timestamp` is system uptime). A
+   *  `unix_epoch` variant was here and has been removed, because this format
+   *  cannot carry an honest one: epoch nanoseconds are ~1.76e18 and
+   *  `lidar_timestamp_ns` is required to be an exact integer, which stops at
+   *  9.01e15. So every record declaring it was refused, and every record that
+   *  was ACCEPTED while declaring it was carrying uptime nanoseconds under the
+   *  wrong label — a field that could only ever be wrong.
+   *
+   *  It stays an enum of one rather than disappearing so that the day a capture
+   *  path arrives with a different origin, the record has somewhere to say so
+   *  and old readers reject it instead of misreading it.
+   *  TODO(ADR-023): a second origin needs a representation for its timestamp
+   *  first — seconds with a fractional part, the way `ultrasonic_unix_s` does
+   *  it. */
+  lidar_domain: 'arkit_uptime';
   /** Seconds to ADD to `lidar_timestamp_ns / 1e9` to land on the Unix epoch.
    *
    *  Seconds, not nanoseconds, and that is not a taste decision: epoch
@@ -500,7 +562,7 @@ export interface ReconciledClock {
   ultrasonicEndUnixS: number;
   /** The teacher's timestamp, mapped onto the Unix epoch. */
   lidarUnixS: number;
-  lidarDomain: 'arkit_uptime' | 'unix_epoch';
+  lidarDomain: 'arkit_uptime';
   offsetS: number;
   /** The residual the record declared. */
   skewS: number;

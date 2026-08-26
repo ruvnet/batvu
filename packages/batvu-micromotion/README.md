@@ -98,7 +98,7 @@ that is itself moving. That is ADR-023 §3 restated, not a defect here.
 
 ```ts
 analyzeDwell(dwell: ComplexProfileDwell, options: DwellOptions): MicroMotionDwell
-micromotionFeature(bin: MicroMotionBin): { micromotion_band: number }
+micromotionFeature(bin: MicroMotionBin): { micromotion_band: number } | null
 estimateNoiseFloor(dwell: ComplexProfileDwell): number
 wavelengthM(freqHz: number, speedOfSoundMs: number): number
 phaseNoiseStdRad(snrDb: number): number
@@ -110,11 +110,22 @@ fisherGThreshold(alpha: number, k: number): number
 `dwell.data` is interleaved `(re, im)`, ping-major: bin `b` of ping `p` at
 `p*bins*2 + b*2`.
 
-Two refusals are returned rather than answered. A dwell too short to hold
+Three refusals are returned rather than answered. A dwell too short to hold
 `minCycles` (default 3) periods of the slowest searched rate, or a band holding
 fewer than two Fourier bins, comes back as `status: 'insufficient_dwell'` with
-an empty `bins` array — a short dwell is not evidence of stillness. A bin below
-the SNR gate comes back as `status: 'no_return'` with a null rate.
+an empty `bins` array — a short dwell is not evidence of stillness. A dwell
+whose noise floor is not positive comes back as `status: 'no_noise_floor'`, also
+with an empty `bins` array: the SNR gate is `signal > snrGate * floor²`, which
+at a zero floor degenerates to `signal > 0` and admits every bin including the
+empty ones, so the gate the false-alarm rate depends on has stopped running.
+`estimateNoiseFloor` reaches zero by the ordinary route — it is a median over
+range bins, and a range-gated or zero-padded profile is more than half zeros. A
+bin below the SNR gate comes back as `status: 'no_return'` with a null rate.
+
+`micromotionFeature` returns **`null`**, not `{ micromotion_band: 0 }`, for a
+refused bin. Under `weighted_bayes` a zero is evidence of ABSENCE, so reporting
+a refusal as a zero would push a fusion rule with a measurement the sensor
+declined to make — the same failure as pushing it the other way.
 
 ## Limits that are arithmetic, not engineering
 

@@ -340,6 +340,29 @@ export function validateLine(line: PresencePairLine, lineNo = 0): void {
     throw new CorpusError(code, message, lineNo);
   };
 
+  // `parseCorpus` runs `shapeRecord` first, so by the time it calls this every
+  // block is known to be present. This function is EXPORTED, though, and it is
+  // documented as the validator an emitter shares with its own reader — so it
+  // is also reached with whatever a caller has in hand. Without this, a record
+  // missing a whole block throws a bare `TypeError` reading a property of
+  // `undefined`, and a consumer following the contract this package states
+  // (`catch (e) { if (e instanceof CorpusError) refuse() }`) misfiles a
+  // consent-less record as an unrelated crash. Consent keeps its own code, for
+  // the reason `shapeRecord` gives.
+  const blocks: readonly [keyof PresencePairLine, CorpusErrorCode][] = [
+    ['consent', 'consent_missing'],
+    ['provenance', 'invalid'],
+    ['clock', 'invalid'],
+    ['measurement', 'invalid'],
+    ['teacher', 'invalid'],
+  ];
+  for (const [key, code] of blocks) {
+    const block: unknown = line?.[key];
+    if (block === null || block === undefined || typeof block !== 'object') {
+      bad(code, `record carries no ${key} block`);
+    }
+  }
+
   if (line.type !== SCHEMA_TYPE) {
     bad('schema_mismatch', `type ${String(line.type)} is not ${SCHEMA_TYPE}`);
   }
@@ -530,7 +553,12 @@ export function validateLine(line: PresencePairLine, lineNo = 0): void {
   if (!isIndex(clock.lidar_timestamp_ns)) {
     bad('invalid', `clock.lidar_timestamp_ns ${clock.lidar_timestamp_ns} is not an exact nanosecond count`);
   }
-  if (clock.lidar_domain !== 'arkit_uptime' && clock.lidar_domain !== 'unix_epoch') {
+  // One accepted origin. `unix_epoch` used to be the second and could never be
+  // honest: epoch nanoseconds are ~1.76e18 and the check above stops at 2^53-1,
+  // so a record declaring it was either refused for its timestamp or carrying
+  // UPTIME nanoseconds under an epoch label — which nothing downstream checked,
+  // because `lidar_domain` takes part in no arithmetic. See `CorpusClockLine`.
+  if (clock.lidar_domain !== 'arkit_uptime') {
     bad('invalid', `clock.lidar_domain ${String(clock.lidar_domain)} is not a declared origin`);
   }
   if (!Number.isFinite(clock.offset_s)) bad('invalid', `clock.offset_s ${clock.offset_s}`);
@@ -667,7 +695,7 @@ export interface EncodeRecordOptions {
   clock: {
     ultrasonicUnixS: number;
     lidarTimestampNs: number;
-    lidarDomain: 'arkit_uptime' | 'unix_epoch';
+    lidarDomain: 'arkit_uptime';
     offsetS: number;
     skewS: number;
   };
@@ -702,6 +730,16 @@ export function encodeRecord(options: EncodeRecordOptions): PresencePairLine {
   const n = Math.hypot(m.beam[0], m.beam[1], m.beam[2]);
   if (!(n > 1e-9)) throw new CorpusError('invalid', 'beam direction has no length');
 
+  // Checked BEFORE the array is allocated. `validateLine` at the bottom of this
+  // function enforces the same cap, but by then the caller has already paid for
+  // a copy of whatever it handed over — which is the same argument the byte cap
+  // makes about running before `JSON.parse`, on the write side.
+  if (m.iq.length > 2 * MAX_DWELL_SAMPLES) {
+    throw new CorpusError(
+      'invalid',
+      `iq carries ${m.iq.length} floats, past the ${2 * MAX_DWELL_SAMPLES} the ${MAX_DWELL_SAMPLES} sample cap allows`,
+    );
+  }
   const iq = new Array<number>(m.iq.length);
   for (let i = 0; i < m.iq.length; i++) iq[i] = significant(m.iq[i]!, 7);
 

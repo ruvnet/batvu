@@ -20,7 +20,7 @@ import {
   unwrapInPlace,
   wavelengthM,
   type ComplexProfileDwell,
-} from '../index.js';
+} from '@batvu/micromotion';
 
 const SPEED_OF_SOUND = 343;
 /** Centre of the shipping 17.5–20.5 kHz chirp. */
@@ -210,11 +210,20 @@ describe('recovering a known modulation', () => {
     expect(bin.statistic).toBeGreaterThan(result.statisticThreshold);
     expect(bin.snrDb).toBeGreaterThan(19.5);
     expect(bin.snrDb).toBeLessThan(20.5);
-    // The estimator it publishes, on the sample it published it for.
+    // The estimator it publishes, on the sample it published it for —
+    // written out rather than routed back through `phaseNoiseStdRad`, which
+    // would compare the code against itself and hold whatever the factor of 2
+    // in `σ_φ = 1/√(2ρ)` happened to become.
+    const rho = Math.pow(10, bin.snrDb / 10);
     expect(bin.displacementNoiseM!).toBeCloseTo(
-      (phaseNoiseStdRad(bin.snrDb) * LAMBDA) / (4 * Math.PI),
+      (1 / Math.sqrt(2 * rho)) * (LAMBDA / (4 * Math.PI)),
       12,
     );
+    // At 20 dB that is 0.102 mm, which is the figure the header derives.
+    expect(bin.displacementNoiseM! * 1000).toBeCloseTo(0.102, 3);
+    // And the exported helper is the same function, so a caller sizing an
+    // error bar with it gets what the detector used.
+    expect(phaseNoiseStdRad(bin.snrDb)).toBeCloseTo(1 / Math.sqrt(2 * rho), 12);
   });
 
   it('holds the stated ±Δf/2 tolerance when the tone falls between bins', () => {
@@ -324,10 +333,124 @@ describe('refusals', () => {
     };
     const result = analyzeDwell(dwell, { bandHz: BAND });
     expect(result.noiseFloor).toBe(0);
-    for (const bin of result.bins) {
-      expect(bin.status).toBe('no_return');
-      expect(bin.micromotionBand).toBe(0);
+    expect(result.status).toBe('no_noise_floor');
+    expect(result.bins).toHaveLength(0);
+  });
+
+  it('refuses the whole dwell when the floor it would gate against is zero', () => {
+    // The gate is `signal > snrGate·floorPower`. At floorPower = 0 that is
+    // `signal > 0`, so every bin holding anything at all would be admitted —
+    // including bins that hold nothing but a uniformly distributed phase, for
+    // which the exponential null is simply false.
+    //
+    // `estimateNoiseFloor` reaches zero by the ordinary route, not an exotic
+    // one: it is a MEDIAN over range bins, so a profile more than half of which
+    // is identically zero — a range gate, a zero-padded tail — puts it at zero
+    // while real returns sit in the other half.
+    const bins = 32;
+    const live = 12;
+    const rand = mulberry32(0x2222);
+    const data = new Float64Array(PINGS * bins * 2);
+    for (let p = 0; p < PINGS; p++) {
+      for (let b = 0; b < live; b++) {
+        // Pure uniform phase at a tiny amplitude: no target, just an argument.
+        const phi = (rand() * 2 - 1) * Math.PI;
+        const i = (p * bins + b) * 2;
+        data[i]! = 1e-9 * Math.cos(phi);
+        data[i + 1]! = 1e-9 * Math.sin(phi);
+      }
     }
+    const dwell: ComplexProfileDwell = {
+      data,
+      pings: PINGS,
+      bins,
+      prfHz: PRF,
+      lambdaM: LAMBDA,
+    };
+
+    expect(estimateNoiseFloor(dwell)).toBe(0);
+    const estimated = analyzeDwell(dwell, { bandHz: BAND });
+    expect(estimated.status).toBe('no_noise_floor');
+    expect(estimated.reason).toContain('estimated from the dwell');
+    expect(estimated.bins).toHaveLength(0);
+
+    // A caller who states a floor of zero is told the same thing. 0 is not
+    // nullish, so it does not fall through to the estimator, and without this
+    // guard it would be honoured as "no noise at all".
+    const supplied = analyzeDwell(dwell, { bandHz: BAND, noiseFloor: 0 });
+    expect(supplied.status).toBe('no_noise_floor');
+    expect(supplied.reason).toContain('supplied by the caller');
+    expect(supplied.noiseFloorEstimated).toBe(false);
+
+    // And the refusal is total: not one number of random phase escapes.
+    expect(JSON.stringify(estimated)).not.toContain('micromotionBand');
+  });
+
+  it('refuses a bin below the SNR gate and keeps its neighbour above it', () => {
+    // The gate's THRESHOLD, at a value other than "is there anything here at
+    // all". Both bins below carry a real phasor and a real modulation; they
+    // differ only in how far above the floor they sit, which is the one thing
+    // `minSnrDb` is supposed to decide on.
+    const weak = 3;
+    const strong = 4;
+    const floor = 0.1;
+    const weakAmp = floor * Math.pow(10, 3 / 20); // 3 dB
+    const strongAmp = floor * Math.pow(10, 15 / 20); // 15 dB
+    const { dwell } = synthesise({
+      pings: PINGS,
+      bins: 8,
+      snrDb: 20,
+      seed: 0x9e77,
+      amplitude: (b) => (b === weak ? weakAmp : b === strong ? strongAmp : 1),
+      displacement: (_b, t) => 0.0005 * Math.sin(2 * Math.PI * 0.25 * t),
+    });
+
+    const result = analyzeDwell(dwell, { bandHz: BAND, noiseFloor: floor, minSnrDb: 10 });
+    expect(result.status).toBe('ok');
+    expect(result.bins[weak]!.status).toBe('no_return');
+    expect(result.bins[strong]!.status).toBe('ok');
+    expect(result.bins[strong]!.snrDb).toBeGreaterThan(10);
+
+    // Moving the gate moves the answer, in the direction the gate names. If it
+    // did not, the threshold would be decoration and 10 dB would be a number
+    // nothing depends on.
+    const open = analyzeDwell(dwell, { bandHz: BAND, noiseFloor: floor, minSnrDb: 0 });
+    expect(open.bins[weak]!.status).toBe('ok');
+    const shut = analyzeDwell(dwell, { bandHz: BAND, noiseFloor: floor, minSnrDb: 18 });
+    expect(shut.bins[strong]!.status).toBe('no_return');
+  });
+
+  it('will not let a caller switch off the refusals without saying so', () => {
+    const good = synthesise({ pings: 32, bins: 4, snrDb: 20, seed: 0x3 }).dwell;
+    // `alpha` outside (0, 1) reports a threshold no bin can be on either side
+    // of, as though it were calibrated.
+    expect(() => analyzeDwell(good, { bandHz: BAND, alpha: 5 })).toThrow(/alpha/);
+    expect(() => analyzeDwell(good, { bandHz: BAND, alpha: 0 })).toThrow(/alpha/);
+    // `minCycles: 0` turns off `insufficient_dwell` — the refusal that exists
+    // so a dwell too short to see a period is not answered with a score.
+    expect(() => analyzeDwell(good, { bandHz: BAND, minCycles: 0 })).toThrow(/minCycles/);
+    expect(() => analyzeDwell(good, { bandHz: BAND, minSnrDb: -1 })).toThrow(/minSnrDb/);
+  });
+
+  it('never lets the band reach an ordinate the null does not cover', () => {
+    // Two ordinates are χ²₁ rather than exponential and are excluded: k = 0,
+    // and k = N/2 for even N. A band that reaches either would make the quoted
+    // false-alarm rate wrong in a way no output would show.
+    const pings = 64; // even, so N/2 = 32 exists
+    const df = PRF / pings;
+    const { dwell, noiseFloor } = synthesise({ pings, bins: 4, snrDb: 20, seed: 0x4 });
+
+    // Up to Nyquist exactly. ⌊(N-1)/2⌋ = 31, so k = 32 is excluded and K is
+    // 31 - 1 + 1 = 31 rather than 32.
+    const toNyquist = analyzeDwell(dwell, { bandHz: [df, PRF / 2], noiseFloor });
+    expect(toNyquist.bandBins).toBe(31);
+
+    // A low edge far below the resolution must not pull k down to 0.
+    const belowResolution = analyzeDwell(dwell, {
+      bandHz: [df * 1e-6, PRF / 2],
+      noiseFloor,
+    });
+    expect(belowResolution.bandBins).toBe(31);
   });
 
   it('rejects a malformed dwell loudly', () => {
@@ -384,6 +507,63 @@ describe('common-mode rejection', () => {
     expect(firedRejected.length).toBeLessThanOrEqual(3);
     // And the residual displacement is a noise floor, not a millimetre.
     for (const bin of rejected.bins) expect(bin.displacementM!).toBeLessThan(swayM / 20);
+  });
+
+  it('does not let a bin with no return vote on where the phone went', () => {
+    // A bin below the SNR gate has a phase that is a random walk, and the
+    // common-mode track it would perturb is subtracted from every bin that DOES
+    // carry a return. The exclusion is asserted by construction rather than by
+    // eyeballing a number: two dwells whose USABLE bins are bit-identical must
+    // produce a bit-identical common-mode track, however much energy sits in
+    // the bins that were refused.
+    const strong = 2;
+    const { dwell, noiseFloor } = synthesise({
+      pings: PINGS,
+      bins: BINS,
+      snrDb: 20,
+      seed: 0x3c0d,
+      // Only two bins hold a scatterer. The other 62 are receiver noise, which
+      // is exactly what an empty range bin is.
+      amplitude: (b) => (b < strong ? 1 : 0),
+      displacement: (_b, t) => swayM * Math.sin(2 * Math.PI * swayHz * t),
+    });
+
+    // The same dwell with the refused bins emptied to a hard zero, so they
+    // contribute nothing to the sum whether or not they are skipped.
+    const quiet = (dwell.data as Float64Array).slice();
+    let refusedPower = 0;
+    for (let p = 0; p < PINGS; p++) {
+      for (let b = strong; b < BINS; b++) {
+        const i = (p * BINS + b) * 2;
+        refusedPower += quiet[i]! * quiet[i]! + quiet[i + 1]! * quiet[i + 1]!;
+        quiet[i]! = 0;
+        quiet[i + 1]! = 0;
+      }
+    }
+
+    const withNoise = analyzeDwell(dwell, { bandHz: BAND, noiseFloor });
+    const withoutNoise = analyzeDwell({ ...dwell, data: quiet }, { bandHz: BAND, noiseFloor });
+
+    // The refused bins really are refused, and there really is energy in them:
+    // 62 bins of noise against 2 bins of unit reflector is a third of the total
+    // power in the profile, so admitting them would move the estimate.
+    const refused = withNoise.bins.filter((b) => b.status === 'no_return');
+    expect(refused).toHaveLength(BINS - strong);
+    expect(refusedPower / (PINGS * strong)).toBeGreaterThan(0.2);
+
+    // Bit-identical, not close: the only bins the estimator may read are the
+    // two that are the same in both dwells.
+    expect(withNoise.commonModePeakM).toBe(withoutNoise.commonModePeakM);
+    // And it is still measuring the sway rather than nothing at all. The window
+    // is wider than the 5% the 64-bin scene above holds to, and the reason is
+    // the point of the test: the estimate is now formed from TWO bins, so the
+    // per-ping increment carries the noise of two returns instead of
+    // sixty-four, and the cumulative track random-walks around the sway. That
+    // is the cost of refusing the other sixty-two, and it is the right cost to
+    // pay — their phase is a random walk, and admitting them buys precision in
+    // a quantity that is not the one being measured.
+    expect(withNoise.commonModePeakM / swayM).toBeGreaterThan(0.9);
+    expect(withNoise.commonModePeakM / swayM).toBeLessThan(1.3);
   });
 
   it('measures the sensor motion it removed', () => {
@@ -490,12 +670,38 @@ describe('what the sensor is allowed to say', () => {
     const result = analyzeDwell(dwell, { bandHz: BAND, noiseFloor });
     for (const bin of result.bins) {
       const feature = micromotionFeature(bin);
-      expect(Object.keys(feature)).toEqual(['micromotion_band']);
-      expect(feature.micromotion_band).toBeGreaterThanOrEqual(0);
-      expect(feature.micromotion_band).toBeLessThanOrEqual(1);
+      expect(feature).not.toBeNull();
+      expect(Object.keys(feature!)).toEqual(['micromotion_band']);
+      expect(feature!.micromotion_band).toBeGreaterThanOrEqual(0);
+      expect(feature!.micromotion_band).toBeLessThanOrEqual(1);
     }
     // The refusal is structural, so assert it structurally: nothing this
     // package produces carries a presence claim.
     expect(JSON.stringify(result)).not.toContain('presence');
+  });
+
+  it('contributes nothing at all for a bin it refused to measure', () => {
+    // The one boundary where the distinction could be erased. Under
+    // `weighted_bayes` a `micromotion_band` of 0 is evidence of ABSENCE, so a
+    // refused bin reported as 0 would push a fusion rule with a measurement the
+    // sensor declined to make.
+    const empty = 2;
+    const { dwell, noiseFloor } = synthesise({
+      pings: PINGS,
+      bins: 8,
+      snrDb: 20,
+      seed: 0xbeef,
+      amplitude: (b) => (b === empty ? 0 : 1),
+    });
+    const result = analyzeDwell(dwell, { bandHz: BAND, noiseFloor });
+    const refused = result.bins[empty]!;
+    expect(refused.status).toBe('no_return');
+    expect(micromotionFeature(refused)).toBeNull();
+
+    // And a bin that WAS measured and found still is not the same thing: it
+    // carries the key, with whatever number the periodogram gave it.
+    const measured = result.bins[empty + 1]!;
+    expect(measured.status).toBe('ok');
+    expect(micromotionFeature(measured)).not.toBeNull();
   });
 });

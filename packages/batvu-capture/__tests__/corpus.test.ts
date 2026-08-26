@@ -49,7 +49,7 @@ import {
   type PresencePairLine,
   type SealedTeacherLabel,
   type TeacherLabel,
-} from '../index.js';
+} from '@batvu/capture';
 
 /** Dwell start. The same epoch second `@batvu/field`'s tests use, so a reader
  *  comparing the two files is not also converting between clocks. */
@@ -214,6 +214,12 @@ describe('the .presence.jsonl record', () => {
     // phase of zero — and the loud bin would survive, so a test that only looked
     // at the loud bin would pass while the format quietly deleted every small
     // target in the corpus.
+    //
+    // Five decimal places of phase, which pins `significant()` at six digits or
+    // better rather than at the seven it is called with. The exact round-trip is
+    // not available to assert: `buildRecord` narrows the wire's f64 into a
+    // `Float32Array`, so the number that comes back has 24 bits of mantissa
+    // whatever the encoder wrote. The tolerance is that narrowing, not slack.
     const record = parseCorpus(encodeCorpus([fixtureLine()]), { accept: 'simulated' })[0]!;
     const { data } = record.measurement;
 
@@ -344,7 +350,10 @@ describe('consent, which is structural', () => {
       [{ scope: 'batvu.range.mapping.v1' }, /does not authorise/],
       [{ privacyMax: 'P2' }, /misprices/],
       [{ receiptId: '' }, /receipt_id/],
-      [{ subjectRef: 'ab' }, /control characters/],
+      // Escaped, not a literal control byte: a formatter or a copy-paste that
+      // strips 0x07 would turn the fixture into the string 'ab' and this case
+      // would stop testing the check it names.
+      [{ subjectRef: 'a\u0007b' }, /control characters/],
       [{ withdrawalRef: '   ' }, /withdrawal_ref/],
       [{ grantedUnixS: T0 + 60, expiresUnixS: T0 - 10 }, /expires no later/],
       [{ grantedUnixS: T0 - 10, expiresUnixS: T0 + MAX_CONSENT_WINDOW_S }, /settings checkbox/],
@@ -459,20 +468,70 @@ describe('trust, in both directions', () => {
 
 describe('the bounds, all of them', () => {
   it('refuses a line past the byte cap before it parses it', () => {
-    const oversized = `{"pad":"${'a'.repeat(MAX_LINE_BYTES)}"}`;
+    // MALFORMED as well as oversized, and that is the whole test. A valid
+    // oversized line cannot distinguish the two orderings — an implementation
+    // that parsed first would reach the same `line_too_long` and the same
+    // message, having already paid for the allocation the cap exists to
+    // prevent. Unterminated JSON can only reach `line_too_long` if the cap ran
+    // before `JSON.parse` did.
+    const oversized = `{"pad":"${'a'.repeat(MAX_LINE_BYTES)}`;
     const error = refusal(() => parseCorpus(oversized, { accept: 'simulated' }));
     expect(error.code).toBe('line_too_long');
-    // Not a JSON parse error: the cap ran first, which is the whole point of
-    // having it. A cap applied after parsing has already allowed the allocation.
     expect(error.message).toMatch(/maximum is/);
+
+    // The control: the same malformed JSON, under the cap, is a parse error.
+    const small = refusal(() => parseCorpus('{"pad":"aaa', { accept: 'simulated' }));
+    expect(small.code).toBe('parse');
   });
 
-  it('keeps the sample cap and the byte cap consistent with each other', () => {
-    // The byte cap is derived from the sample cap, not chosen independently, so
-    // raising one without the other should fail here rather than in the field.
-    // 14 bytes is a signed seven-significant-figure JSON number plus its comma
-    // at its widest for a physically-scaled amplitude (`-1.234567e-12`).
-    expect(MAX_DWELL_SAMPLES * 2 * 14).toBeLessThanOrEqual(MAX_LINE_BYTES);
+  it('encodes the largest dwell every other cap permits', () => {
+    // The byte cap claims to be DERIVED from the sample cap. That claim is only
+    // worth anything if the worst case actually fits, and the worst case is not
+    // a typical phasor: `JSON.stringify` writes exponential notation only below
+    // 1e-6, so the widest number `significant(v, 7)` can produce is a negative
+    // value just above it — `-0.000001234567`, fifteen characters. Those are
+    // exactly the values a faint bin holds.
+    //
+    // So this builds the real thing and runs it through the package's own
+    // encoder. An arithmetic assertion between two constants would have agreed
+    // with whichever bytes-per-number figure it was written with.
+    const bins = 1024;
+    const pings = MAX_DWELL_SAMPLES / bins;
+    expect(Number.isInteger(pings)).toBe(true);
+    expect(pings).toBeLessThanOrEqual(MAX_DWELL_PINGS);
+    expect(bins).toBeLessThanOrEqual(MAX_PROFILE_BINS);
+
+    const iq = new Float32Array(MAX_DWELL_SAMPLES * 2);
+    iq.fill(-1.234567e-6);
+    expect(JSON.stringify(Number((-1.234567e-6).toPrecision(7)))).toHaveLength(15);
+
+    const line = fixtureLine({
+      measurement: { ...fixtureOptions().measurement, pings, bins, rangeStepM: 0.0036, iq },
+    });
+    const text = encodeLine(line);
+    expect(new TextEncoder().encode(text).length).toBeLessThanOrEqual(MAX_LINE_BYTES);
+    // And it is not passing because the encoder quietly dropped the phase: the
+    // array really is 2 * MAX_DWELL_SAMPLES numbers wide.
+    expect(line.measurement.iq).toHaveLength(MAX_DWELL_SAMPLES * 2);
+  }, 60_000);
+
+  it('refuses an oversized iq before it copies it', () => {
+    // `encodeRecord` rounds every element into a fresh array, and it used to do
+    // that before anything had checked how many elements there were — so a
+    // caller handing over a hundred megabytes of phasors paid for a copy of it
+    // and then got a refusal. Same argument as the byte cap running before
+    // `JSON.parse`, on the write side.
+    const error = refusal(() =>
+      encodeRecord(
+        fixtureOptions({
+          measurement: {
+            ...fixtureOptions().measurement,
+            iq: new Float32Array(2 * MAX_DWELL_SAMPLES + 2),
+          },
+        }),
+      ),
+    );
+    expect(error.message).toMatch(/iq carries/);
   });
 
   it('refuses a corpus past the record cap', () => {
@@ -594,6 +653,14 @@ describe('the bounds, all of them', () => {
     expect(on((l) => (l.clock.ultrasonic_unix_s = -1)).message).toMatch(/capture time/);
     expect(on((l) => (l.clock.ultrasonic_unix_s = 5e9)).message).toMatch(/capture time/);
     expect(on((l) => (l.clock.lidar_domain = 'gps' as never)).message).toMatch(/lidar_domain/);
+    // The variant that used to be in the enum and could never be honest: epoch
+    // nanoseconds do not survive `Number.isSafeInteger`, so a record declaring
+    // it was refused for its timestamp while a record carrying UPTIME
+    // nanoseconds under that label sailed through unchecked. Now it is refused
+    // by name, like any other undeclared origin.
+    expect(on((l) => (l.clock.lidar_domain = 'unix_epoch' as never)).message).toMatch(
+      /lidar_domain/,
+    );
     expect(on((l) => (l.clock.skew_s = -1)).message).toMatch(/non-negative uncertainty/);
     expect(on((l) => (l.clock.offset_s = Number.NaN)).message).toMatch(/offset_s/);
   });
