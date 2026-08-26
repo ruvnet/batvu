@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 //
-// Build the GitHub Pages site from the explainer source.
+// Build the GitHub Pages site from the explainer source, into `docs/`.
 //
 // `site/explainer.html` is written in the shape a Claude Artifact wants — a
 // `<title>`, its font links, a `<style>`, then page content, with no
@@ -12,13 +12,25 @@
 // near-identical HTML files in one repository diverge the first time somebody
 // edits one of them, and the divergence is invisible until a reader notices the
 // hosted page and the published artifact disagree. One source, two renderings.
-import { mkdirSync, readFileSync, writeFileSync, copyFileSync, existsSync } from 'node:fs';
+//
+// **The output is committed.** Pages is configured by hand here — Settings →
+// Pages → Deploy from a branch → `main` → `/docs` — and a branch source serves
+// what is in the branch, so `docs/index.html` has to be in git. That means the
+// generated file and its source can drift if somebody edits one and forgets to
+// rebuild, which is the cost of not having a build step in CI. `npm run site`
+// is the whole rebuild, and the README says so next to the link.
+//
+// `/docs` rather than the repository root because GitHub offers exactly those
+// two choices for a branch source, and an `index.html` at the top of a Rust and
+// TypeScript monorepo is worse than one inside the folder already holding the
+// ADRs and the benchmarks.
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(root, 'site/explainer.html');
-const DIST = join(root, 'site/dist');
+const DIST = join(root, 'docs');
 
 // Where the social card lives once deployed. Open Graph requires an absolute
 // URL — a relative one is silently ignored by every crawler that reads it.
@@ -56,7 +68,7 @@ const page = `<!doctype html>
 <meta property="og:title" content="${title}">
 <meta property="og:description" content="${description}">
 <meta property="og:url" content="${BASE}/">
-<meta property="og:image" content="${BASE}/explainer-hero.jpg">
+<meta property="og:image" content="${BASE}/img/explainer-hero.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>%F0%9F%A6%87</text></svg>">
 ${head}
@@ -70,8 +82,18 @@ ${body}
 mkdirSync(DIST, { recursive: true });
 writeFileSync(join(DIST, 'index.html'), page);
 
-// The social card ships with the page so the og:image resolves.
-const card = join(root, 'docs/img/explainer-hero.jpg');
-if (existsSync(card)) copyFileSync(card, join(DIST, 'explainer-hero.jpg'));
+// Jekyll is on by default for a branch source and would quietly drop anything
+// beginning with an underscore. Nothing here starts with one today, and this
+// is the one-line insurance against that stopping being true.
+writeFileSync(join(DIST, '.nojekyll'), '');
 
-console.log(`  built site/dist/index.html (${Math.round(page.length / 1024)} KB) from site/explainer.html`);
+// The card already lives at docs/img/explainer-hero.jpg, which is inside the
+// published tree, so og:image points there rather than a copy being made.
+const card = join(root, 'docs/img/explainer-hero.jpg');
+if (!existsSync(card)) {
+  throw new Error(`${card} is missing — og:image would 404. Run \`npm run hero\`? ` +
+    'No: that builds the app screenshot. This card is captured from the explainer itself.');
+}
+
+console.log(`  built docs/index.html (${Math.round(page.length / 1024)} KB) from site/explainer.html`);
+console.log('  serve with: Settings → Pages → Deploy from a branch → main → /docs');
