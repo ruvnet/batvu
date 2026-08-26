@@ -35,6 +35,12 @@ interface CoreExports {
   bv_plan_record_len(handle: number): number;
   bv_plan_env_ptr(handle: number): number;
   bv_plan_env_len(handle: number): number;
+  // ADR-023 §1's complex profile. Declared here even though the app does not
+  // read it yet: an export nothing on this side names is an export a Rust
+  // change can delete without anything noticing, and phase is the one thing
+  // that ADR exists to stop being deleted.
+  bv_plan_iq_ptr(handle: number): number;
+  bv_plan_iq_len(handle: number): number;
   bv_plan_process(handle: number): number;
   bv_plan_destroy(handle: number): void;
 }
@@ -208,7 +214,17 @@ export interface PingResult {
   startRangeM: number;
   rangeStepM: number;
   noiseFloor: number;
+  /** Envelope bins the plan actually published — never more than `plan.envLen`,
+   *  which is what a view over the envelope buffer has to be sized from. */
   envLen: number;
+  /** Floats in the complex profile, i.e. `2 * envLen`. Absent unless the plan
+   *  was created with `complexProfile: true`. */
+  iqLen?: number;
+  /** Whether the blast's autocorrelation skirt was subtracted from `envelope`.
+   *  Absent unless the plan carries a complex profile, because it only matters
+   *  there: `iq` is the raw compression, so when this is true `|iq[i]|` is NOT
+   *  `envelope[i]`. See `bv_plan_iq_ptr` in `abi.rs`. */
+  blastCancelled?: boolean;
   detections: Detection[];
 }
 
@@ -245,6 +261,23 @@ export class SonarPlan {
   get envelope(): Float32Array {
     this.assertLive();
     return this.core.f32(this.core.raw.bv_plan_env_ptr(this.handle), this.envLen);
+  }
+
+  /**
+   * The complex profile from the last `process()` — `(re, im)` interleaved, two
+   * floats per envelope bin — or `null` when the plan was not created with
+   * `complexProfile: true` (ADR-023 §1).
+   *
+   * `|iq[i]|` is `envelope[i]` only when blast cancellation is off: the
+   * cancellation edits the envelope after the matched filter and leaves this
+   * buffer alone, and it is on by default. `PingResult.blastCancelled` says
+   * which case a given ping is in.
+   */
+  get iq(): Float32Array | null {
+    this.assertLive();
+    const len = this.core.raw.bv_plan_iq_len(this.handle);
+    if (len === 0) return null;
+    return this.core.f32(this.core.raw.bv_plan_iq_ptr(this.handle), len);
   }
 
   /** Compress whatever is in `input` and return the detections. */

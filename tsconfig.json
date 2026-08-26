@@ -6,6 +6,8 @@
     { "path": "./packages/batvu-horizon" },
     { "path": "./packages/batvu-flywheel" },
     { "path": "./packages/batvu-field" },
-    { "path": "./packages/batvu-memory" }
+    { "path": "./packages/batvu-memory" },
+    { "path": "./packages/batvu-micromotion" },
+    { "path": "./packages/batvu-capture" }
   ]
 }

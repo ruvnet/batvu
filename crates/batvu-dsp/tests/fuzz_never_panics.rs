@@ -169,13 +169,15 @@ fn the_json_abi_never_panics_on_hostile_requests() {
 fn the_plan_abi_never_panics_on_hostile_handles() {
     use batvu_dsp::abi::{
         bv_plan_create, bv_plan_destroy, bv_plan_env_len, bv_plan_env_ptr, bv_plan_input_ptr,
-        bv_plan_process, bv_plan_record_len,
+        bv_plan_iq_len, bv_plan_iq_ptr, bv_plan_process, bv_plan_record_len,
     };
     for h in [-999i32, -1, 0, 1, 7, i32::MAX, i32::MIN] {
         let _ = bv_plan_record_len(h);
         let _ = bv_plan_env_len(h);
         let _ = bv_plan_input_ptr(h);
         let _ = bv_plan_env_ptr(h);
+        let _ = bv_plan_iq_ptr(h);
+        let _ = bv_plan_iq_len(h);
         let _ = bv_plan_process(h);
         bv_plan_destroy(h);
     }
@@ -187,4 +189,62 @@ fn the_plan_abi_never_panics_on_hostile_handles() {
     bv_plan_destroy(h);
     assert_eq!(bv_plan_record_len(h), 0);
     let _ = bv_plan_process(h);
+    assert!(bv_plan_iq_ptr(h).is_null());
+    assert_eq!(bv_plan_iq_len(h), 0);
+}
+
+#[test]
+fn the_complex_profile_never_panics_on_a_hostile_record() {
+    // `CxProfiler::fill` recomputes the range gate and indexes the iq buffer
+    // with arithmetic that is not the same arithmetic `Pipeline::process` ran.
+    // Nothing else in the fuzz suite creates a plan that asks for phase, so
+    // without this the whole second buffer is unreachable from here.
+    use batvu_dsp::abi::{
+        bv_plan_create, bv_plan_destroy, bv_plan_input_ptr, bv_plan_iq_len, bv_plan_iq_ptr,
+        bv_plan_process,
+    };
+    let mut rng = Rng(0xC0FFEE);
+    let configs = [
+        r#"{"complexProfile":true}"#,
+        r#"{"complexProfile":true,"minRangeM":0,"maxRangeM":50}"#,
+        r#"{"complexProfile":true,"minRangeM":40,"maxRangeM":50}"#,
+        r#"{"complexProfile":true,"blastCancellation":false,"minRangeM":0.01,"maxRangeM":0.05}"#,
+    ];
+    for cfg in configs {
+        for record_len in [64usize, 1_000, 24_000] {
+            let h = bv_plan_create(cfg.as_ptr(), cfg.len(), record_len);
+            assert!(h >= 0, "{cfg} at {record_len}");
+            let n = batvu_dsp::abi::bv_plan_record_len(h);
+            for fill in 0..4 {
+                unsafe {
+                    let dst = std::slice::from_raw_parts_mut(bv_plan_input_ptr(h), n);
+                    for (i, v) in dst.iter_mut().enumerate() {
+                        *v = match fill {
+                            0 => 0.0,
+                            1 => f32::NAN,
+                            2 => {
+                                if i % 3 == 0 {
+                                    f32::INFINITY
+                                } else {
+                                    1e30
+                                }
+                            }
+                            _ => (rng.next() as f32 / u32::MAX as f32) * 2.0 - 1.0,
+                        };
+                    }
+                }
+                let _ = bv_plan_process(h);
+                let len = bv_plan_iq_len(h);
+                assert!(len > 0, "a plan that asked for phase must publish a buffer");
+                let iq = unsafe { std::slice::from_raw_parts(bv_plan_iq_ptr(h), len) };
+                // Non-finite samples are zeroed on the way in, so a non-finite
+                // float here is the transform having been fed one anyway.
+                assert!(
+                    iq.iter().all(|v| v.is_finite()),
+                    "{cfg} at {record_len}, fill {fill}: non-finite phase"
+                );
+            }
+            bv_plan_destroy(h);
+        }
+    }
 }

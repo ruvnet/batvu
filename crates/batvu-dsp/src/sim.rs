@@ -28,21 +28,86 @@
 //! * **Atmospheric absorption**, which at 20 kHz is the term people forget:
 //!   roughly 0.6-1.0 dB/m in ordinary indoor air, paid twice on a round trip.
 //!   At 6 m that is another ~10 dB gone.
+//! * **One kind of motion, and only so the tests have something to compute
+//!   against.** `Target::breathing` gives a target a periodic radial
+//!   displacement in slow time. It is a fixture for checking that a
+//!   phase-modulation detector computes what it claims to compute; it is not a
+//!   model of a person. The warning label is on the field.
 //! * **A seeded noise floor**, so a run replays bit-for-bit — a hard requirement
 //!   for `@metaharness/flywheel` replay bundles.
 
 use crate::chirp::{self, ChirpSpec};
 
+/// A sinusoidal radial displacement in slow time — ping to ping, not sample to
+/// sample. `amplitude_m` of zero is a static target and is the default.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Breathing {
+    /// Peak radial displacement from `Target::range_m`, in metres.
+    pub amplitude_m: f32,
+    /// Cycles per second of that displacement.
+    pub rate_hz: f32,
+    /// Phase at slow time zero, in radians.
+    pub phase_rad: f32,
+}
+
+impl Breathing {
+    /// The amplitude-zero case, spelled out where a struct literal needs it.
+    pub const STATIC: Breathing = Breathing {
+        amplitude_m: 0.0,
+        rate_hz: 0.0,
+        phase_rad: 0.0,
+    };
+
+    /// Radial displacement at slow time `t_s`, in metres.
+    pub fn displacement_m(&self, t_s: f32) -> f32 {
+        // The static case returns a HARD zero rather than falling out of the
+        // arithmetic. `sin` of a large enough argument is still finite, but
+        // `rate_hz * t_s` is not guaranteed to be — and `0.0 * NaN` is `NaN`,
+        // which would let a nonsensical rate poison a target that is not
+        // supposed to be moving at all.
+        //
+        // The rendering path does NOT reach this line for a static target:
+        // `Target::at` short-circuits on the same condition one level up, and
+        // that is the short-circuit the golden-record digest pins. This one
+        // defends the public `displacement_m`/`range_at` pair, which a caller
+        // can reach with any `Breathing` it likes.
+        if self.amplitude_m == 0.0 {
+            return 0.0;
+        }
+        self.amplitude_m * (std::f32::consts::TAU * self.rate_hz * t_s + self.phase_rad).sin()
+    }
+}
+
 /// One reflector in the simulated scene.
 #[derive(Debug, Clone, Copy)]
 pub struct Target {
-    /// One-way range from the phone, in metres.
+    /// One-way range from the phone, in metres. With `breathing` set this is
+    /// the MEAN range; `range_at` gives the instantaneous one.
     pub range_m: f32,
     /// Reflection coefficient at 1 m, linear (1.0 = a perfect mirror).
     pub reflectivity: f32,
     /// Spreading exponent: 2.0 for a compact object, 1.0 for a large flat
     /// surface (a wall returns far more energy than a chair at the same range).
     pub spreading: f32,
+    /// A periodic radial displacement, so that the range seen by ping `k` is
+    /// `range_m + amplitude_m * sin(2*pi*rate_hz*t + phase_rad)`.
+    ///
+    /// This exists for one job: to check that a phase-modulation detector
+    /// computes what it claims to compute. A known displacement produces a
+    /// known two-way phase excursion, `4*pi*d/lambda`, in a known band, and a
+    /// test can assert that the machinery puts the energy where the arithmetic
+    /// says it goes. That is the whole of its remit (ADR-023 §Decision 4).
+    ///
+    /// It is **not** evidence about people. This module models spreading,
+    /// absorption and specular reflection off rigid surfaces. It does not model
+    /// a chest, a coat, clutter statistics, multipath from soft furnishings, or
+    /// the acoustic difference between wool and skin, and a sinusoid is not a
+    /// breath. So it is never training data, never a label, and it must never
+    /// be scored by the flywheel — the corpus is real captures or there is no
+    /// corpus. A test asserting that a detector DETECTS a simulated breather is
+    /// asserting that the code agrees with the code, which is ADR-022's defect
+    /// in the worst form this project has available to it.
+    pub breathing: Breathing,
 }
 
 impl Target {
@@ -51,6 +116,7 @@ impl Target {
             range_m,
             reflectivity,
             spreading: 2.0,
+            breathing: Breathing::STATIC,
         }
     }
     pub fn wall(range_m: f32, reflectivity: f32) -> Target {
@@ -58,6 +124,40 @@ impl Target {
             range_m,
             reflectivity,
             spreading: 1.0,
+            breathing: Breathing::STATIC,
+        }
+    }
+    /// A compact target that moves. Read the `breathing` field's doc before
+    /// reaching for this: it is a unit-test fixture for detector arithmetic and
+    /// it is not a person.
+    pub fn breathing(range_m: f32, reflectivity: f32, motion: Breathing) -> Target {
+        Target {
+            breathing: motion,
+            ..Target::point(range_m, reflectivity)
+        }
+    }
+
+    /// One-way range in metres at slow time `t_s` seconds.
+    pub fn range_at(&self, t_s: f32) -> f32 {
+        self.range_m + self.breathing.displacement_m(t_s)
+    }
+
+    /// This target frozen at slow time `t_s`: the displacement folded into
+    /// `range_m`, and the motion cleared so a snapshot cannot be frozen a
+    /// second time and moved twice.
+    ///
+    /// A static target is returned untouched rather than rebuilt, so the
+    /// amplitude-zero case is the SAME target, not an equal one — which is what
+    /// keeps every existing record bit-for-bit unchanged now that `render` goes
+    /// through here.
+    pub fn at(self, t_s: f32) -> Target {
+        if self.breathing.amplitude_m == 0.0 {
+            return self;
+        }
+        Target {
+            range_m: self.range_at(t_s),
+            breathing: Breathing::STATIC,
+            ..self
         }
     }
 }
@@ -159,6 +259,10 @@ pub fn direct_amplitude(cfg: &SceneConfig) -> f32 {
 }
 
 /// Sample index at which a target's echo arrives, given the direct-path offset.
+///
+/// This reads `range_m` as given, so for a breathing target it describes the
+/// MEAN position. A caller that wants a particular ping passes `t.at(t_s)`,
+/// which is what `render_at` does.
 pub fn echo_index(t: &Target, spec: &ChirpSpec, cfg: &SceneConfig) -> f32 {
     let c = chirp::speed_of_sound(cfg.temperature_c);
     // Speaker -> target -> mic, with `range_m` measured from the phone's
@@ -179,6 +283,31 @@ pub fn direct_index(spec: &ChirpSpec, cfg: &SceneConfig) -> f32 {
 
 /// Render a scene to a received record.
 pub fn render(spec: &ChirpSpec, targets: &[Target], cfg: &SceneConfig) -> Vec<f32> {
+    render_at(spec, targets, cfg, 0.0)
+}
+
+/// Render one ping's record with the scene frozen at slow time `t_s` seconds.
+///
+/// Nothing hands `render` a ping index today, and there is nowhere for it to
+/// come from: the two callers are `Pipeline`'s tests and the `simulate` ABI op,
+/// and both describe a single ping with no notion of which one it is. Changing
+/// `render`'s signature would make every one of them invent a zero, so slow
+/// time enters through this sibling instead and `render` is exactly
+/// `render_at(.., 0.0)`.
+///
+/// The scene is frozen for the whole record, which is the stop-and-hop
+/// assumption and is stated here because it is an ASSUMPTION. It holds while a
+/// target moves a negligible fraction of a wavelength during the 5 ms its own
+/// echo is in flight; it is what makes a displacement appear as a per-ping
+/// delay rather than an intra-pulse Doppler smear, and it stops being true for
+/// anything moving fast enough to matter within one pulse.
+///
+/// TODO(ADR-023): a dwell — N pings at a fixed PRI on one bearing — has no home
+/// in this crate. `t_s = k * pri_s` is the caller's arithmetic until it does,
+/// because the PRI is the host's (it is a parameter of `design_report`, not a
+/// field of `SceneConfig`), and the ABI's `simulate` op would need a slow-time
+/// argument of its own to reach it.
+pub fn render_at(spec: &ChirpSpec, targets: &[Target], cfg: &SceneConfig, t_s: f32) -> Vec<f32> {
     let mut rec = vec![0.0f32; cfg.record_len];
 
     // Scale every arrival by one factor, chosen so the blast lands exactly on
@@ -213,11 +342,15 @@ pub fn render(spec: &ChirpSpec, targets: &[Target], cfg: &SceneConfig) -> Vec<f3
         );
     }
     for t in targets {
+        // Frozen first, so the displacement is paid by the delay AND by the
+        // spreading loss. The amplitude change over a millimetre is nothing;
+        // splitting the two would be a second place for the range to live.
+        let t = t.at(t_s);
         add_delayed(
             &mut rec,
             spec,
-            echo_index(t, spec, cfg),
-            echo_amplitude(t, cfg) * level,
+            echo_index(&t, spec, cfg),
+            echo_amplitude(&t, cfg) * level,
         );
     }
 
@@ -517,6 +650,239 @@ mod tests {
         let var = sq / n as f64 - mean * mean;
         assert!(mean.abs() < 0.02, "mean {mean}");
         assert!((var - 1.0).abs() < 0.05, "variance {var}");
+    }
+
+    /// Sub-sample delay of a record holding exactly one arrival, read off the
+    /// energy centroid. The pulse shape does not change with range — only its
+    /// scale, which the division removes — so the centroid moves one for one
+    /// with the echo and needs no matched filter to find it.
+    fn echo_centroid(rec: &[f32]) -> f64 {
+        let mut num = 0.0f64;
+        let mut den = 0.0f64;
+        for (i, v) in rec.iter().enumerate() {
+            let e = (*v as f64) * (*v as f64);
+            num += i as f64 * e;
+            den += e;
+        }
+        num / den
+    }
+
+    /// FNV-1a over the raw bit patterns, so a golden record is pinned by its
+    /// exact bits rather than by anything a comparison tolerance could paper
+    /// over.
+    fn digest(rec: &[f32]) -> u64 {
+        let mut h = 0xcbf2_9ce4_8422_2325u64;
+        for v in rec {
+            for b in v.to_bits().to_le_bytes() {
+                h ^= b as u64;
+                h = h.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        h
+    }
+
+    #[test]
+    fn a_static_target_renders_bit_for_bit_as_it_did_before_slow_time_existed() {
+        // Every record this repository has ever published came out of `render`,
+        // and `render` now runs through `render_at`. If slow time is not
+        // perfectly inert for a target with no motion, every number in every
+        // ADR moved on the day this field was added — quietly, because nothing
+        // else would have noticed.
+        let spec = ChirpSpec::default();
+        let cfg = SceneConfig::default();
+        let targets = vec![Target::wall(2.4, 0.9), Target::point(0.9, 0.6)];
+        let base = render(&spec, &targets, &cfg);
+
+        // Taken from the simulator as it stood at 1b70196, the commit before
+        // `Breathing` existed. Comparing the new code against itself would only
+        // show that it is self-consistent; this is the actual claim.
+        assert_eq!(base.len(), 24_000);
+        assert_eq!(
+            digest(&base),
+            0x0b8c_9300_989d_d221,
+            "the shipping scene no longer renders the record it rendered before ADR-023"
+        );
+
+        // And slow time moves nothing that is not moving, at any `t_s`.
+        for t_s in [0.0f32, 0.37, 12.5, 1.0e4] {
+            assert_eq!(base, render_at(&spec, &targets, &cfg, t_s), "t_s = {t_s}");
+        }
+    }
+
+    #[test]
+    fn zero_amplitude_is_a_static_target_however_absurd_the_rate() {
+        // `rate_hz * t_s` overflows to infinity here, `sin` of that is NaN, and
+        // `0.0 * NaN` is NaN — which would silently delete the target rather
+        // than leave it where it was.
+        //
+        // There are TWO short-circuits on that condition and the rendering path
+        // only reaches the outer one, so both are asserted here separately.
+        let absurd = Breathing {
+            amplitude_m: 0.0,
+            rate_hz: 3.0e38,
+            phase_rad: 1.0,
+        };
+
+        // The inner one, in `displacement_m`, reached through the public pair.
+        assert_eq!(absurd.displacement_m(1.0e30), 0.0);
+        let t = Target::breathing(0.9, 0.6, absurd);
+        assert_eq!(t.range_at(1.0e30), 0.9);
+
+        // The outer one, in `Target::at`, which is what `render_at` goes
+        // through and what keeps a static scene bit-for-bit.
+        let spec = ChirpSpec::default();
+        let cfg = SceneConfig::default();
+        let still = render(&spec, &[Target::point(0.9, 0.6)], &cfg);
+        let told_to_breathe_by_zero = render_at(&spec, &[t], &cfg, 1.0e30);
+        assert_eq!(still, told_to_breathe_by_zero);
+    }
+
+    #[test]
+    fn freezing_a_snapshot_a_second_time_does_not_move_it_again() {
+        // `Target::at` clears the motion on the way out. Without that, a
+        // snapshot would still carry its amplitude and a second `at` would add
+        // a second displacement to a range that already holds one — and every
+        // caller that passes a target through two stages would be reporting a
+        // target twice as far from its mean as the scene put it.
+        let motion = Breathing {
+            amplitude_m: 0.02,
+            rate_hz: 0.25,
+            phase_rad: 0.0,
+        };
+        let t = Target::breathing(2.0, 0.7, motion);
+        let quarter = 0.25 / motion.rate_hz;
+        let once = t.at(quarter);
+        assert!((once.range_m - 2.02).abs() < 1e-6, "{}", once.range_m);
+        assert_eq!(once.breathing.amplitude_m, 0.0);
+        assert_eq!(once.at(quarter).range_m, once.range_m);
+        assert_eq!(once.at(0.0).range_m, once.range_m);
+    }
+
+    #[test]
+    fn a_displacement_carries_the_two_way_phase_the_adr_derives() {
+        // Derived, not quoted: an extra `d` of range is `2d` of path, which is
+        // `2d/c` of delay, and a delay `tau` at frequency `f` is `2*pi*f*tau`
+        // of phase. So `2*pi*f*2d/c`, and with `lambda = c/f` that is
+        // `4*pi*d/lambda`. This is arithmetic over the delay the simulator
+        // actually applies — it is not a claim about a chest.
+        let spec = ChirpSpec::default();
+        let cfg = SceneConfig::default();
+        let c = chirp::speed_of_sound(cfg.temperature_c);
+        let f = 20_000.0f32;
+        let lambda = c / f;
+
+        // 10 mm, not the millimetre the ADR quotes: the delay is read out of
+        // two f32 sample indices near 560, where one ulp is 6e-5 samples and a
+        // millimetre of range is only 0.28. The relation is linear, so the
+        // millimetre figure is recovered below by dividing.
+        let d = 0.010f32;
+        let rate = 0.25f32;
+        let t = Target::breathing(
+            2.0,
+            0.7,
+            Breathing {
+                amplitude_m: d,
+                rate_hz: rate,
+                phase_rad: 0.0,
+            },
+        );
+
+        // A quarter period in, `sin` is one and the target sits exactly `d`
+        // further out than its mean.
+        let quarter = 0.25 / rate;
+        assert!((t.range_at(0.0) - 2.0).abs() < 1e-9, "{}", t.range_at(0.0));
+        assert!(
+            (t.range_at(quarter) - (2.0 + d)).abs() < 1e-6,
+            "{}",
+            t.range_at(quarter)
+        );
+
+        let moved = echo_index(&t.at(quarter), &spec, &cfg);
+        let mean = echo_index(&t.at(0.0), &spec, &cfg);
+        let dphi = std::f32::consts::TAU * f * (moved - mean) / spec.fs;
+        let expect = 4.0 * std::f32::consts::PI * d / lambda;
+        assert!(
+            (dphi / expect - 1.0).abs() < 1e-3,
+            "{dphi} rad of two-way phase, want {expect}"
+        );
+
+        // Scaled back to the millimetre, which is the form the ADR reads off
+        // this relation: ~0.73 rad, ~42 degrees. Scaled off the MEASURED `dphi`
+        // rather than off `expect`, so these two asserts read the simulator's
+        // delay as well; dividing `expect` by ten would only be dividing the
+        // line above by ten.
+        let per_mm = dphi / 10.0;
+        assert!((per_mm - 0.733).abs() < 0.005, "{per_mm} rad per mm");
+        assert!(
+            (per_mm.to_degrees() - 42.0).abs() < 0.5,
+            "{} degrees per mm",
+            per_mm.to_degrees()
+        );
+    }
+
+    #[test]
+    fn the_echo_moves_through_slow_time_at_the_requested_rate() {
+        // Measured off the rendered records rather than off `range_at`, so it
+        // is `render_at` under test and not the formula twice.
+        let spec = ChirpSpec::default();
+        let cfg = SceneConfig {
+            noise_rms: 0.0,
+            direct_path_gain: 0.0,
+            clip: false,
+            ..Default::default()
+        };
+        let amp = 0.05f32;
+        let rate = 0.5f32;
+        let pri = 0.125f32;
+        let n = 32usize;
+        // 4 s of dwell at 0.5 Hz, so exactly two cycles land in the window and
+        // the sinusoid falls in one DFT bin with nothing to leak.
+        let cycles = (rate * pri * n as f32).round() as usize;
+        assert_eq!(cycles, 2);
+
+        let t = Target::breathing(
+            2.0,
+            0.7,
+            Breathing {
+                amplitude_m: amp,
+                rate_hz: rate,
+                phase_rad: 0.0,
+            },
+        );
+        let delays: Vec<f64> = (0..n)
+            .map(|k| echo_centroid(&render_at(&spec, &[t], &cfg, k as f32 * pri)))
+            .collect();
+
+        let mean = delays.iter().sum::<f64>() / n as f64;
+        let mag = |bin: usize| {
+            let (mut re, mut im) = (0.0f64, 0.0f64);
+            for (k, v) in delays.iter().enumerate() {
+                let w = -std::f64::consts::TAU * bin as f64 * k as f64 / n as f64;
+                re += (v - mean) * w.cos();
+                im += (v - mean) * w.sin();
+            }
+            (re * re + im * im).sqrt() * 2.0 / n as f64
+        };
+
+        let want = mag(cycles);
+        for bin in 1..n / 2 {
+            if bin != cycles {
+                assert!(
+                    mag(bin) < want / 20.0,
+                    "bin {bin} holds {} against {want} in bin {cycles}",
+                    mag(bin)
+                );
+            }
+        }
+
+        // And the swing is the displacement in samples: `2 * amp` of extra
+        // path, over `c`, times the sample rate.
+        let c = chirp::speed_of_sound(cfg.temperature_c);
+        let expect = (2.0 * amp / c * spec.fs) as f64;
+        assert!(
+            (want / expect - 1.0).abs() < 0.02,
+            "{want} samples of swing, want {expect}"
+        );
     }
 
     #[test]

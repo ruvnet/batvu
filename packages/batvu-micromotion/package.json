@@ -1,0 +1,13 @@
+{
+  "name": "@batvu/micromotion",
+  "version": "0.1.0",
+  "description": "BatVu slow-time micro-motion detector — per-range-bin phase over a dwell, common-mode rejected, with a periodicity statistic that has a stated false-alarm rate. Reports micromotion_band, never presence.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "license": "MIT",
+  "scripts": { "build": "tsc", "lint": "tsc --noEmit" },
+  "devDependencies": { "@types/node": "^20.11.0", "typescript": "^5.4.0", "vitest": "^2.0.0" }
+}

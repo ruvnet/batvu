@@ -170,6 +170,76 @@ describe('the plan surface', () => {
     }
   });
 
+  it('hands back the complex profile only when the plan asked for it', () => {
+    // ADR-023 §1: `envelope()` gains a sibling that writes `(re, im)` pairs and
+    // the magnitude path is untouched, so nothing downstream changes until
+    // something asks for phase. Both halves of that are asserted here, because
+    // an export this side does not name is an export a Rust change can delete
+    // silently — and phase being deleted is the defect the ADR is about.
+    const recordLen = 24_000;
+    const sim = core.eval<{ samples: number[] }>({
+      op: 'simulate',
+      config: DEFAULT_SONAR_CONFIG,
+      targets: [{ rangeM: 2.6, reflectivity: 0.9, spreading: 1 }],
+      scene: { recordLen, noiseRms: 5e-4 },
+    });
+    const base = DEFAULT_SONAR_CONFIG as unknown as Record<string, unknown>;
+
+    const plain = core.createPlan(base, recordLen);
+    try {
+      plain.processSamples(sim.samples);
+      expect(plain.iq).toBeNull();
+    } finally {
+      plain.destroy();
+    }
+
+    // Blast cancellation off, so the two buffers describe the same numbers and
+    // the agreement is checkable. With it on they diverge at every bin, which
+    // is what `blastCancelled` is reported for.
+    const plan = core.createPlan(
+      { ...base, complexProfile: true, blastCancellation: false },
+      recordLen,
+    );
+    try {
+      const result = plan.processSamples(sim.samples);
+      expect(result.blastCancelled).toBe(false);
+      expect(result.iqLen).toBe(2 * result.envLen);
+
+      const iq = plan.iq;
+      expect(iq).not.toBeNull();
+      expect(iq!.length).toBe(2 * plan.envLen);
+      expect(result.envLen).toBeLessThanOrEqual(plan.envLen);
+
+      const env = plan.envelope;
+      let checked = 0;
+      let turning = 0;
+      for (let i = 0; i < result.envLen; i++) {
+        if (env[i] === 0) continue;
+        const re = iq![2 * i]!;
+        const im = iq![2 * i + 1]!;
+        expect(Math.hypot(re, im)).toBeCloseTo(env[i]!, 6);
+        checked++;
+        if (Math.abs(re) > 1e-6 && Math.abs(im) > 1e-6) turning++;
+      }
+      expect(checked).toBeGreaterThan(1000);
+      // Without this, a complex path that emitted `(|z|, 0)` — phase deleted,
+      // the exact defect — would satisfy every assertion above.
+      expect(turning).toBeGreaterThan(1000);
+    } finally {
+      plan.destroy();
+    }
+
+    // And the default: cancellation on, so the host is told the buffers do NOT
+    // agree rather than left to assume they do.
+    const shipped = core.createPlan({ ...base, complexProfile: true }, recordLen);
+    try {
+      const result = shipped.processSamples(sim.samples);
+      expect(result.blastCancelled).toBe(true);
+    } finally {
+      shipped.destroy();
+    }
+  });
+
   it('cancels unknown capture latency via the direct-path blast', () => {
     const recordLen = 36_000;
     const config = DEFAULT_SONAR_CONFIG as unknown as Record<string, unknown>;

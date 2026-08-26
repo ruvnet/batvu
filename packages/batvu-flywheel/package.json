@@ -24,7 +24,9 @@
     "@batvu/core": "0.1.0",
     "@batvu/sim": "0.1.0",
     "@metaharness/flywheel": "^0.1.10",
-    "@batvu/horizon": "0.1.0"
+    "@batvu/horizon": "0.1.0",
+    "@batvu/micromotion": "0.1.0",
+    "@batvu/capture": "0.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

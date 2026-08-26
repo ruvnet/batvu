@@ -1,0 +1,30 @@
+{
+  // Type-check the test suites.
+  //
+  // The per-package projects exclude `__tests__` because a test must not end up
+  // in `dist/`, which meant nothing type-checked a test file at all — a gap
+  // that let three packages ship tests the repository neither compiled nor ran.
+  // This project has no `outDir` and emits nothing; it exists so `npm run lint`
+  // reads the tests too.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@batvu/core": ["./packages/batvu-core/src/index.ts"],
+      "@batvu/sim": ["./packages/batvu-sim/src/index.ts"],
+      "@batvu/horizon": ["./packages/batvu-horizon/src/index.ts"],
+      "@batvu/horizon/emission": ["./packages/batvu-horizon/src/emission.ts"],
+      "@batvu/flywheel": ["./packages/batvu-flywheel/src/index.ts"],
+      "@batvu/field": ["./packages/batvu-field/src/index.ts"],
+      "@batvu/memory": ["./packages/batvu-memory/src/index.ts"],
+      "@batvu/capture": ["./packages/batvu-capture/src/index.ts"],
+      "@batvu/micromotion": ["./packages/batvu-micromotion/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/__tests__/**/*.ts", "__tests__/**/*.ts"]
+}

@@ -2,7 +2,7 @@
   "name": "batvu",
   "version": "0.1.0",
   "private": true,
-  "description": "BatVu — iPhone acoustic sonar: see a room the way a bat does. Part of the ruview spatial-intelligence effort.",
+  "description": "BatVu \u2014 iPhone acoustic sonar: see a room the way a bat does. Part of the ruview spatial-intelligence effort.",
   "homepage": "https://github.com/ruvnet/batvu",
   "repository": {
     "type": "git",
@@ -21,7 +21,7 @@
     "test:rust": "cargo test --manifest-path crates/batvu-dsp/Cargo.toml --release",
     "bench": "node bench/run-bench.mjs",
     "bench:rust": "cargo test --manifest-path crates/batvu-dsp/Cargo.toml --release -- --ignored --nocapture bench_",
-    "lint": "tsc --build && tsc --noEmit -p packages/batvu-web/tsconfig.json",
+    "lint": "tsc --build && tsc --noEmit -p tsconfig.tests.json && tsc --noEmit -p packages/batvu-web/tsconfig.json",
     "fmt:rust": "cargo fmt --manifest-path crates/batvu-dsp/Cargo.toml --all",
     "clippy": "cargo clippy --manifest-path crates/batvu-dsp/Cargo.toml --all-targets -- -D warnings",
     "flywheel": "node packages/batvu-flywheel/scripts/run-flywheel.mjs",

@@ -33,3 +33,53 @@ export type { Score, EvaluationDetail, EvaluatorOptions } from './evaluator.js';
 
 export { runSonarFlywheel } from './run.js';
 export type { SonarFlywheelOptions, SonarFlywheelReport } from './run.js';
+
+// ADR-023 §3's second wheel: same engine, same signer, same frozen gate, but
+// scored against a corpus of real captures rather than simulated rooms. It is
+// exported here so its refusals are reachable from outside a test file — a
+// refusal nothing can call is a refusal nobody has to pass.
+export {
+  DETECTOR_LEVERS,
+  DETECTOR_LADDERS,
+  badRootDetectorPolicy,
+  decodeDetectorLever,
+  describeDetectorStep,
+  detectorLadderStep,
+  resolveDetectorPolicy,
+} from './detector-policy.js';
+export type {
+  DetectorPolicy,
+  DetectorLever,
+  ResolvedDetectorPolicy,
+  ResolvedDwellOptions,
+} from './detector-policy.js';
+
+export {
+  AttestedCorpus,
+  DETECTOR_PROMOTION_RULE,
+  MICROMOTION_ANALYZER,
+  NoEvidenceError,
+  aggregateDetectorDetails,
+  captureFromPairedDwell,
+  evaluateCapture,
+  makeDetectorEvaluator,
+  runDetectorFlywheel,
+  splitCorpusByRoomAndSubject,
+} from './detector-evaluator.js';
+export type {
+  AttestCorpusInput,
+  CaptureEvaluation,
+  CaptureOutcome,
+  CaptureRecord,
+  ComplexProfileDwell,
+  ConsentReceipt,
+  CorpusSplit,
+  DetectorEvaluatorOptions,
+  DetectorFlywheelOptions,
+  DetectorFlywheelReport,
+  DetectorSuiteScore,
+  DwellAnalyzer,
+  MicroMotionBin,
+  MicroMotionDwell,
+  TeacherLabel,
+} from './detector-evaluator.js';

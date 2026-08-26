@@ -18,6 +18,8 @@ export default defineConfig({
       ),
       '@batvu/horizon': pkg('batvu-horizon'),
       '@batvu/flywheel': pkg('batvu-flywheel'),
+      '@batvu/capture': pkg('batvu-capture'),
+      '@batvu/micromotion': pkg('batvu-micromotion'),
       '@batvu/field': pkg('batvu-field'),
       '@batvu/memory': pkg('batvu-memory'),
     },
