@@ -48,7 +48,7 @@
 // | axis         | for the micro-motion detector                          | why THIS |
 // |--------------|--------------------------------------------------------|----------|
 // | `primary`    | hit rate minus false-alarm rate, over DECIDED captures  | both degenerate strategies score exactly zero |
-// | `noopRate`   | fraction of captures the detector DECLINED to decide     | abstention, not error — see below |
+// | `noopRate`   | how much of the corpus the detector DECLINED to decide on | abstention, not error — see below |
 // | `costPerWin` | milliseconds of analysis per point of `primary`         | a dwell is tens of seconds of one bearing; it has to be worth it |
 // | `regressed`  | the measured false-alarm rate exceeds the detector's own claim | a calibrated number that is not calibrated |
 //
@@ -75,6 +75,18 @@
 // The root policy is chosen so that clause has somewhere to go: a two-second
 // dwell refuses every capture, so the root's `noopRate` is 1 and the only
 // direction is down.
+//
+// **And on a small corpus that direction runs out.** `noopRate` here is a mean
+// over captures of a fraction of range bins, so unlike `evaluator.ts`'s
+// uncommitted map volume it can land EXACTLY on zero — a handful of captures in
+// which every bin had a return and every dwell was long enough, and there is
+// nothing left to commit. From that point the frozen gate's strict clause
+// forbids every further promotion, including ones that would raise `primary`
+// outright. That was measured, on the fixture corpus in this package's tests,
+// and it is left exactly as it is: the two honest responses are more captures
+// or a better projection, and `run.ts`'s header records that both times this
+// came up before, the projection was the thing that was wrong. Relaxing the
+// gate would hide the next one.
 
 import {
   gateFingerprint,
@@ -507,6 +519,18 @@ export interface CaptureEvaluation {
   commonModePeakM: number;
   /** The strongest `micromotion_band` in any usable bin. Diagnostic. */
   peakScore: number;
+  /** How much of this capture the detector declined to decide, in `[0, 1]` —
+   *  the `noopRate` input.
+   *
+   *  1 when the dwell produced no bin scores at all. Otherwise the fraction of
+   *  the profile's range bins that came back with no usable return, because the
+   *  instrument's output is a `micromotion_band` PER BIN and a refused bin is
+   *  undecided range the dwell looked at and came away from with nothing it
+   *  would stand behind. That is `evaluator.ts`'s uncommitted map volume,
+   *  transposed from voxels to range bins, and it is what puts the cost of the
+   *  SNR gate on the abstention axis where it belongs rather than leaving it
+   *  invisible. */
+  noopShare: number;
   elapsedMs: number;
 }
 
@@ -562,9 +586,16 @@ export function evaluateCapture(
   };
 
   // The dwell was too short to see a period of the slowest rate searched. Not
-  // evidence of stillness, so not a miss.
+  // evidence of stillness, so not a miss, and nothing in the profile was
+  // decided — a whole abstention.
   if (analysis.status !== 'ok') {
-    return { ...base, outcome: 'abstain', abstainReason: analysis.reason ?? analysis.status, peakScore: 0 };
+    return {
+      ...base,
+      outcome: 'abstain',
+      abstainReason: analysis.reason ?? analysis.status,
+      peakScore: 0,
+      noopShare: 1,
+    };
   }
 
   // The operator moved more than this policy is prepared to believe through.
@@ -572,37 +603,41 @@ export function evaluateCapture(
   // phase, and the common-mode estimator only models translation along the
   // boresight. Declining is an abstention; pretending is not an option.
   if (analysis.commonModePeakM > resolved.commonModeMaxPeakM) {
-    return { ...base, outcome: 'abstain', abstainReason: 'sensor_motion', peakScore: 0 };
+    return { ...base, outcome: 'abstain', abstainReason: 'sensor_motion', peakScore: 0, noopShare: 1 };
   }
 
   const usable = analysis.bins.filter((b) => b.status === 'ok');
   const peakScore = usable.reduce((m, b) => Math.max(m, b.micromotionBand), 0);
+  // Bins the analyzer refused, plus any it did not return at all: range the
+  // dwell looked at and left undecided.
+  const noopShare = dwell.bins === 0 ? 1 : clamp01((dwell.bins - usable.length) / dwell.bins);
+  const scored = { ...base, peakScore, noopShare };
 
   if (!isTeacherPositive(record)) {
     if (usable.length === 0) {
-      return { ...base, outcome: 'abstain', abstainReason: 'no_return', peakScore: 0 };
+      return { ...scored, outcome: 'abstain', abstainReason: 'no_return' };
     }
     const fired = usable.some((b) => b.micromotionBand >= resolved.scoreThreshold);
-    return {
-      ...base,
-      outcome: fired ? 'false_alarm' : 'correct_rejection',
-      abstainReason: null,
-      peakScore,
-    };
+    return { ...scored, outcome: fired ? 'false_alarm' : 'correct_rejection', abstainReason: null };
   }
 
   const target = binsCoveringRange(dwell, record.teacher.bodyRangeM!);
   if (target === null) {
     // The record did not carry the bin geometry, so the teacher's metres cannot
-    // be turned into a bin. Nothing was decided about it.
-    return { ...base, outcome: 'abstain', abstainReason: 'no_range_geometry', peakScore };
+    // be turned into a bin. Nothing was decided ABOUT THE LABEL — but the bins
+    // the analyzer did score were still decided, so `noopShare` is not 1.
+    return { ...scored, outcome: 'abstain', abstainReason: 'no_range_geometry' };
   }
   const atTarget = usable.filter((b) => b.bin >= target.lo && b.bin <= target.hi);
   if (atTarget.length === 0) {
-    return { ...base, outcome: 'abstain', abstainReason: 'no_return', peakScore };
+    return { ...scored, outcome: 'abstain', abstainReason: 'no_return' };
   }
   const fired = atTarget.some((b) => b.micromotionBand >= resolved.scoreThreshold);
-  return { ...base, outcome: fired ? 'hit' : 'miss', abstainReason: null, peakScore };
+  return { ...scored, outcome: fired ? 'hit' : 'miss', abstainReason: null };
+}
+
+function clamp01(x: number): number {
+  return Math.min(1, Math.max(0, x));
 }
 
 /** Take the first `pings` profiles. A view, not a copy — the dwell is
@@ -714,7 +749,10 @@ export function aggregateDetectorDetails(
   // on exactly zero, and a detector that decided nothing at all lands there too
   // without a special case — its abstention is charged once, on `noopRate`.
   const primary = Math.max(0, hitRate - falseAlarmRate);
-  const noopRate = abstentions / details.length;
+  // Not `abstentions / details.length`: a capture the detector decided about
+  // may still have left most of its profile undecided, and that is exactly the
+  // cost of the SNR gate. See {@link CaptureEvaluation.noopShare}.
+  const noopRate = details.reduce((a, d) => a + d.noopShare, 0) / details.length;
 
   // Per POINT of J, not per capture: a policy that doubles the dwell for a
   // rounding-error gain should look expensive, and per-capture cost would hide

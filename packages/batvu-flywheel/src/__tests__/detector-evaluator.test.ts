@@ -377,6 +377,7 @@ function outcomes(counts: Partial<Record<CaptureEvaluation['outcome'], number>>)
         dwellS: 30,
         commonModePeakM: 0,
         peakScore: 0,
+        noopShare: outcome === 'abstain' ? 1 : 0,
         elapsedMs: 1,
       });
     }
@@ -679,6 +680,17 @@ describe('the projection', () => {
     const detail = evaluateCapture(record, makePolicy(), evaluatorOptions());
     expect(detail.outcome).toBe('abstain');
     expect(detail.abstainReason).toBe('no_return');
+    // Three of twelve bins were refused, and nine were decided. The abstention
+    // is charged as the share of the profile left undecided, not as a whole
+    // capture — the dwell did commit, just not where the teacher was looking.
+    expect(detail.noopShare).toBeCloseTo(3 / 12, 12);
+  });
+
+  it('charges a refused range bin to noopRate, so the SNR gate has a visible cost', () => {
+    const record = emptyCapture('a', 'kitchen', 7, { deadBins: [0, 1, 2, 3, 4, 5] });
+    const detail = evaluateCapture(record, makePolicy(), evaluatorOptions());
+    expect(detail.outcome).toBe('correct_rejection');
+    expect(aggregateDetectorDetails([detail], 0.01).noopRate).toBeCloseTo(0.5, 12);
   });
 
   it('scores a detector that never fires and one that always fires at exactly zero', () => {
@@ -868,9 +880,24 @@ describe('the promotion loop', () => {
       expect(commit.failureReasons.length, commit.id).toBeGreaterThan(0);
     }
     expect(rejected.length + report.promotionNotes.length).toBeGreaterThan(0);
-    // eslint-disable-next-line no-console
-    console.log('DIAG notes', report.promotionNotes, 'lift', JSON.stringify(report.result.liftCurve), 'scores', report.result.replayBundle.all_commits.map((c) => [c.mutation?.summary, c.candidateScore?.primary, c.candidateScore?.noopRate, c.verdict, c.failureReasons.join('|')]));
   }, 120_000);
+
+  it('lets the frozen gate refuse a candidate that improves primary but commits no more', () => {
+    // Documented, and deliberately not routed around. Once every capture has
+    // been decided, `noopRate` is exactly 0 and the gate's strict clause can
+    // never be satisfied again — so a candidate that would raise `primary` from
+    // 0 to 1 is rejected. On the fixture corpus in this file the wheel does
+    // exactly that, at generation 2. The gate is not the thing to change: see
+    // the note at the top of `detector-evaluator.ts`.
+    const baseline = aggregateDetectorDetails(outcomes({ hit: 4, false_alarm: 4 }), 0.5);
+    const candidate = aggregateDetectorDetails(outcomes({ hit: 4, correct_rejection: 4 }), 0.05);
+    expect(baseline.noopRate).toBe(0);
+    expect(candidate.primary).toBeGreaterThan(baseline.primary);
+
+    const decision = meetsPromotionRule({ baseline, candidate });
+    expect(decision.promote).toBe(false);
+    expect(decision.reasons.join(' ')).toMatch(/noop/);
+  });
 
   it('reproduces exactly across two runs of the same configuration', async () => {
     const run = async () => {

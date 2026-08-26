@@ -41,7 +41,7 @@ use crate::chirp::{self, ChirpSpec};
 use crate::json::{self, Value};
 use crate::matched::MatchedFilter;
 use crate::pipeline::{self, Pipeline, RangeProfile, SonarConfig};
-use crate::sim::{self, SceneConfig, Target};
+use crate::sim::{self, Breathing, SceneConfig, Target};
 use crate::window::Window;
 
 pub const ABI_VERSION: u32 = 1;
@@ -248,6 +248,15 @@ fn targets_from_json(v: Option<&Value>) -> Vec<Target> {
                     range_m: t.f32_or("rangeM", 1.0),
                     reflectivity: t.f32_or("reflectivity", 0.8),
                     spreading: t.f32_or("spreading", 2.0),
+                    // Deliberately not parsed from JSON, and not an oversight.
+                    // `Target::breathing` is a unit-test fixture for detector
+                    // arithmetic (ADR-023 §4). Reaching it through the scene
+                    // API would let the demo render a breathing target, and a
+                    // rendered breather is the shortest path to somebody
+                    // treating simulator output as evidence about people.
+                    // Scenes built here are static; the fixture stays in Rust
+                    // tests where its warning label travels with it.
+                    breathing: Breathing::STATIC,
                 })
                 .collect()
         })
