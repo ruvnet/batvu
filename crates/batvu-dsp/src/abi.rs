@@ -25,6 +25,12 @@
 //! after any allocating call. `bv_plan_process` allocates nothing, so a view
 //! taken after `bv_plan_create` stays valid across every ping of that plan.
 //!
+//! That contract is why the complex profile (`bv_plan_iq_ptr`) is requested in
+//! the plan's config rather than switched on later: turning it on mid-scan would
+//! have to allocate, which would detach the envelope view the caller is already
+//! holding. Asked for at creation, it costs one more buffer in the same growth
+//! and one more view to take at the same moment.
+//!
 //! The packed return buffer is a single reusable slab: the bytes are valid until
 //! the *next* call into the module. Copy them out before calling again.
 
@@ -33,6 +39,7 @@ use std::cell::RefCell;
 use crate::cfar::{CfarConfig, CfarKind};
 use crate::chirp::{self, ChirpSpec};
 use crate::json::{self, Value};
+use crate::matched::MatchedFilter;
 use crate::pipeline::{self, Pipeline, RangeProfile, SonarConfig};
 use crate::sim::{self, SceneConfig, Target};
 use crate::window::Window;
@@ -52,6 +59,75 @@ struct Plan {
     pipeline: Pipeline,
     input: Vec<f32>,
     env: Vec<f32>,
+    /// Present only when the config asked for `"complexProfile": true`.
+    cx: Option<CxProfiler>,
+}
+
+/// The coherent sibling of the envelope buffer: the same range bins, carrying
+/// `(re, im)` instead of `|.|` (ADR-023 §1).
+///
+/// Two costs, stated rather than buried. It runs the matched filter a SECOND
+/// time over the same record, because `Pipeline` owns its filter privately and
+/// the compressed record dies inside `process()`; a plan that asks for phase
+/// therefore pays two FFT pairs per ping instead of one. And it recomputes the
+/// range gate `process()` has already computed, so that `iq[2*i]` describes the
+/// same bin as `env[i]` — arithmetic that now exists in two places and can drift.
+///
+/// One thing the two buffers do NOT share, and a host must not assume they do:
+/// `env` has had the direct-path blast's autocorrelation skirt subtracted from
+/// it when `blastCancellation` is on, and `iq` has not, so within the blast's
+/// reach `|iq[i]|` is the larger of the two. That subtraction is an
+/// envelope-domain approximation — it cannot cancel to zero precisely because it
+/// has no phase to work with — and doing it coherently instead is one of the
+/// things retaining phase is for. Until that exists, `iq` is the raw compressed
+/// record and this comment is the warning label.
+///
+/// TODO(ADR-023): fold the complex path into `Pipeline::process` — one
+/// compression, one gate, one buffer — once there is a consumer for it. It is
+/// out here for now so that the magnitude pipeline, which every current caller
+/// uses and no current caller needs phase for, pays exactly nothing.
+struct CxProfiler {
+    mf: MatchedFilter,
+    /// Finite-sanitised copy of the record. `Pipeline::process` sanitises into
+    /// its own private scratch, which we cannot see, and one non-finite sample
+    /// poisons every bin of an FFT — skipping this would hand back a garbage
+    /// phase profile beside a perfectly good envelope, on exactly the glitched
+    /// frames a caller is least likely to be checking.
+    sane: Vec<f32>,
+    /// `2 * bins` floats: `(re, im)` per range bin, interleaved.
+    iq: Vec<f32>,
+}
+
+impl CxProfiler {
+    fn new(cfg: &SonarConfig, record_len: usize, bins: usize) -> CxProfiler {
+        CxProfiler {
+            mf: MatchedFilter::new(&cfg.chirp, record_len, cfg.rx_taper),
+            sane: vec![0.0f32; record_len],
+            iq: vec![0.0f32; 2 * bins],
+        }
+    }
+
+    /// Fill `iq` for the profile `process()` just returned. `t0` and `bins` come
+    /// from that profile, which is what ties the two buffers to the same lags.
+    fn fill(&mut self, cfg: &SonarConfig, x: &[f32], t0: f32, bins: usize) {
+        let take = x.len().min(self.sane.len());
+        for (slot, &v) in self.sane[..take].iter_mut().zip(&x[..take]) {
+            *slot = if v.is_finite() { v } else { 0.0 };
+        }
+        for v in &mut self.sane[take..] {
+            *v = 0.0;
+        }
+        // The gate `Pipeline::process` applies to the envelope, applied again.
+        let lo = (t0 + cfg.lag_for_range(cfg.min_range_m)).floor().max(0.0) as usize;
+        let n = (2 * bins).min(self.iq.len());
+        self.mf
+            .complex_profile(&self.sane[..take], lo, &mut self.iq[..n]);
+        // A short profile must not leave the previous ping's phase visible in
+        // the tail of a view the host reads in full.
+        for v in &mut self.iq[n..] {
+            *v = 0.0;
+        }
+    }
 }
 
 // ────────────────────────────────────────────────────── memory management ──
@@ -254,6 +330,18 @@ fn err(msg: &str) -> Value {
     Value::obj(vec![("error", Value::str(msg))])
 }
 
+/// Add one field to an object, so an optional payload can ride alongside
+/// `profile_to_json` without a second copy of it.
+fn with_field(v: Value, k: &str, extra: Value) -> Value {
+    match v {
+        Value::Obj(mut o) => {
+            o.insert(k.to_string(), extra);
+            Value::Obj(o)
+        }
+        other => other,
+    }
+}
+
 // ───────────────────────────────────────────────────────── the control op ──
 
 /// Evaluate a JSON request. Pure: no state is retained between calls.
@@ -327,7 +415,17 @@ fn dispatch(v: &Value) -> Value {
             }
             let mut p = Pipeline::new(cfg, samples.len());
             let prof = p.process(&samples);
-            profile_to_json(&prof, v.bool_or("includeEnv", false))
+            let out = profile_to_json(&prof, v.bool_or("includeEnv", false));
+            if !v.bool_or("includeIq", false) {
+                return out;
+            }
+            // The control surface's version of `bv_plan_iq_ptr`: same bins, same
+            // interleaving, marshalled as JSON because this op is not the hot
+            // path and a caller here is inspecting, not scanning.
+            let bins = prof.env.len();
+            let mut cx = CxProfiler::new(p.config(), samples.len(), bins);
+            cx.fill(p.config(), &samples, prof.t0, bins);
+            with_field(out, "iq", Value::f32_arr(&cx.iq))
         }
 
         "scenes" => {
@@ -402,10 +500,16 @@ pub extern "C" fn bv_plan_create(ptr: *const u8, len: usize, record_len: usize) 
         .ceil()
         .min(record_len as f32) as usize
         + 2;
+    let cx = if v.bool_or("complexProfile", false) {
+        Some(CxProfiler::new(&cfg, record_len, env_len))
+    } else {
+        None
+    };
     let plan = Plan {
         pipeline: Pipeline::new(cfg, record_len),
         input: vec![0.0f32; record_len],
         env: vec![0.0f32; env_len],
+        cx,
     };
     PLANS.with(|p| {
         let mut p = p.borrow_mut();
@@ -451,6 +555,33 @@ pub extern "C" fn bv_plan_env_len(handle: i32) -> usize {
     with_plan(handle, |p| p.env.len(), 0)
 }
 
+/// Pointer to the plan's complex profile — `(re, im)` interleaved, two floats
+/// per bin, one bin per element of the envelope buffer, so `iq[2*i]` and
+/// `iq[2*i + 1]` are the parts whose modulus is `env[i]` wherever blast
+/// cancellation has not been applied on top of `env`.
+///
+/// Null unless the plan's config carried `"complexProfile": true`; see the
+/// memory-growth contract at the top of this module for why it is not a runtime
+/// switch. Valid until the plan is destroyed.
+#[no_mangle]
+pub extern "C" fn bv_plan_iq_ptr(handle: i32) -> *const f32 {
+    with_plan(
+        handle,
+        |p| match &p.cx {
+            Some(cx) => cx.iq.as_ptr(),
+            None => std::ptr::null(),
+        },
+        std::ptr::null(),
+    )
+}
+
+/// Length of the complex profile in FLOATS, i.e. twice `bv_plan_env_len`. Zero
+/// when the plan was not created with a complex profile.
+#[no_mangle]
+pub extern "C" fn bv_plan_iq_len(handle: i32) -> usize {
+    with_plan(handle, |p| p.cx.as_ref().map_or(0, |cx| cx.iq.len()), 0)
+}
+
 /// Process whatever is currently in the plan's input buffer. Allocates nothing;
 /// returns packed JSON metadata (detections and profile geometry, no envelope —
 /// the envelope is already in wasm memory at `bv_plan_env_ptr`).
@@ -471,7 +602,21 @@ pub extern "C" fn bv_plan_process(handle: i32) -> *const u8 {
             for v in &mut p.env[n..] {
                 *v = 0.0;
             }
-            json::to_string(&profile_to_json(&prof, false))
+            let out = profile_to_json(&prof, false);
+            let Plan {
+                pipeline,
+                input,
+                cx,
+                ..
+            } = p;
+            let out = match cx {
+                Some(cx) => {
+                    cx.fill(pipeline.config(), input, prof.t0, n);
+                    with_field(out, "iqLen", Value::num((2 * n) as f64))
+                }
+                None => out,
+            };
+            json::to_string(&out)
         },
         json::to_string(&err("unknown plan handle")),
     );
@@ -688,6 +833,128 @@ mod tests {
 
         bv_plan_destroy(handle);
         assert_eq!(bv_plan_record_len(handle), 0, "a destroyed plan is inert");
+    }
+
+    #[test]
+    fn the_complex_profile_is_absent_unless_the_plan_asks_for_it() {
+        let plain = r#"{"maxRangeM":6}"#;
+        let h = bv_plan_create(plain.as_ptr(), plain.len(), 8_192);
+        assert!(h >= 0);
+        assert!(
+            bv_plan_iq_ptr(h).is_null(),
+            "a plan that did not ask for phase must not hand out a buffer"
+        );
+        assert_eq!(bv_plan_iq_len(h), 0);
+        bv_plan_destroy(h);
+
+        let cx = r#"{"maxRangeM":6,"complexProfile":true}"#;
+        let h = bv_plan_create(cx.as_ptr(), cx.len(), 8_192);
+        assert!(h >= 0);
+        assert!(!bv_plan_iq_ptr(h).is_null());
+        assert_eq!(
+            bv_plan_iq_len(h),
+            2 * bv_plan_env_len(h),
+            "two floats per range bin"
+        );
+        bv_plan_destroy(h);
+        assert_eq!(bv_plan_iq_len(h), 0, "a destroyed plan is inert");
+        assert!(bv_plan_iq_ptr(9999).is_null());
+        assert_eq!(bv_plan_iq_len(9999), 0);
+    }
+
+    #[test]
+    fn the_plan_complex_profile_indexes_the_same_bins_as_the_envelope() {
+        // Blast cancellation off, because it edits the ENVELOPE after the
+        // matched filter and leaves the complex profile alone — the two agree
+        // bin for bin only where nothing has been subtracted from one of them.
+        let record_len = 24_000usize;
+        let cfg = r#"{"maxRangeM":6,"blastCancellation":false,"complexProfile":true}"#;
+        let handle = bv_plan_create(cfg.as_ptr(), cfg.len(), record_len);
+        assert!(handle >= 0);
+
+        let sonar = SonarConfig::default();
+        let scene = SceneConfig {
+            record_len,
+            noise_rms: 5e-4,
+            ..Default::default()
+        };
+        let rec = sim::render(&sonar.chirp, &[Target::wall(2.6, 0.9)], &scene);
+        unsafe {
+            let dst = std::slice::from_raw_parts_mut(bv_plan_input_ptr(handle), record_len);
+            dst.copy_from_slice(&rec);
+        }
+        bv_plan_process(handle);
+
+        let env_len = bv_plan_env_len(handle);
+        let env = unsafe { std::slice::from_raw_parts(bv_plan_env_ptr(handle), env_len) };
+        let iq = unsafe { std::slice::from_raw_parts(bv_plan_iq_ptr(handle), 2 * env_len) };
+
+        // Bit-for-bit: both buffers must be the same compression of the same
+        // record, differing only in whether the last square root was taken.
+        let mut checked = 0usize;
+        for (i, e) in env.iter().enumerate() {
+            if *e == 0.0 {
+                continue; // the zero-padded tail past the profile's real length
+            }
+            let (r, m) = (iq[2 * i], iq[2 * i + 1]);
+            assert_eq!(
+                (r * r + m * m).sqrt().to_bits(),
+                e.to_bits(),
+                "bin {i} disagrees"
+            );
+            checked += 1;
+        }
+        assert!(checked > 1_000, "only {checked} bins carried a profile");
+
+        // Phase is actually present, not a buffer of zeros with a magnitude
+        // that happens to match.
+        let turning = iq
+            .chunks_exact(2)
+            .filter(|p| p[1].abs() > 1e-6 && p[0].abs() > 1e-6)
+            .count();
+        assert!(turning > 1_000, "only {turning} bins carried a phase");
+
+        bv_plan_destroy(handle);
+    }
+
+    #[test]
+    fn the_json_surface_reports_the_same_complex_profile_as_the_plan() {
+        let record_len = 16_384usize;
+        let sonar = SonarConfig::default();
+        let scene = SceneConfig {
+            record_len,
+            noise_rms: 5e-4,
+            ..Default::default()
+        };
+        let rec = sim::render(&sonar.chirp, &[Target::wall(2.0, 0.9)], &scene);
+        let samples = json::to_string(&Value::f32_arr(&rec));
+
+        let lean = call(&format!(
+            r#"{{"op":"process","samples":{samples},"config":{{"blastCancellation":false}}}}"#
+        ));
+        assert!(lean.get("iq").is_none(), "phase is opt-in here too");
+
+        let full = call(&format!(
+            r#"{{"op":"process","samples":{samples},"includeEnv":true,"includeIq":true,
+                 "config":{{"blastCancellation":false}}}}"#
+        ));
+        let env = full.get("env").unwrap().as_arr().unwrap();
+        let iq = full.get("iq").unwrap().as_arr().unwrap();
+        assert_eq!(iq.len(), 2 * env.len(), "two floats per range bin");
+
+        // JSON round-trips f32 through f64 decimal, so this comparison is
+        // relative rather than bitwise — the bitwise one lives on the plan
+        // surface, which is where the floats never leave wasm memory.
+        for (i, e) in env.iter().enumerate() {
+            let e = e.as_f32().unwrap();
+            let r = iq[2 * i].as_f32().unwrap();
+            let m = iq[2 * i + 1].as_f32().unwrap();
+            let mag = (r * r + m * m).sqrt();
+            assert!(
+                (mag - e).abs() <= 1e-6 * e.abs().max(1e-6),
+                "bin {i}: |{r} + {m}j| = {mag}, env says {e}"
+            );
+        }
     }
 
     #[test]

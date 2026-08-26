@@ -10,3 +10,6 @@ e2e/artifacts/
 .vitest/
 *.log
 
+
+# Scoped vitest configs agents write to run one package; never part of the tree
+.vitest.*.tmp.config.ts

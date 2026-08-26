@@ -132,13 +132,12 @@ impl MatchedFilter {
         self.pulse_len
     }
 
-    /// Compress `x` and write the magnitude envelope into `out`.
+    /// Compress `x`, leaving the complex profile in `buf_re`/`buf_im`.
     ///
-    /// `out[m]` is the response at lag `m` samples, i.e. an echo whose round
-    /// trip took `m/fs` seconds relative to the moment the pulse left the
-    /// speaker. `out` is truncated to its own length; callers size it to the
-    /// maximum range they care about.
-    pub fn envelope(&mut self, x: &[f32], out: &mut [f32]) {
+    /// Both public outputs read this one result rather than each running their
+    /// own transform, so `|complex_profile|` and `envelope` cannot drift apart:
+    /// they are the same floats with a different last step.
+    fn compress(&mut self, x: &[f32]) {
         let n = self.n;
         let take = x.len().min(n);
         self.buf_re[..take].copy_from_slice(&x[..take]);
@@ -157,13 +156,63 @@ impl MatchedFilter {
             self.buf_im[k] = ar * bi + ai * br;
         }
         self.fft.inverse(&mut self.buf_re, &mut self.buf_im);
+    }
 
-        let lags = out.len().min(n);
+    /// Compress `x` and write the magnitude envelope into `out`.
+    ///
+    /// `out[m]` is the response at lag `m` samples, i.e. an echo whose round
+    /// trip took `m/fs` seconds relative to the moment the pulse left the
+    /// speaker. `out` is truncated to its own length; callers size it to the
+    /// maximum range they care about.
+    pub fn envelope(&mut self, x: &[f32], out: &mut [f32]) {
+        self.compress(x);
+        let lags = out.len().min(self.n);
         for (m, slot) in out[..lags].iter_mut().enumerate() {
             let (r, i) = (self.buf_re[m], self.buf_im[m]);
             *slot = (r * r + i * i).sqrt();
         }
         for v in &mut out[lags..] {
+            *v = 0.0;
+        }
+    }
+
+    /// Compress `x` and write the COMPLEX profile into `out`: two floats per
+    /// lag, `(re, im)` interleaved, starting at lag `lag0`.
+    ///
+    /// This is [`Self::envelope`] with its last line left off, and that line is
+    /// expensive in what it destroys rather than in what it costs.
+    /// `(r*r + i*i).sqrt()` is where Doppler, moving-target
+    /// indication, coherent blast cancellation and micro-motion sensing go: a
+    /// radial displacement `d` moves the two-way phase by `4*pi*d/lambda`, so
+    /// with `lambda = c/f` around 18 mm in this band, a millimetre is most of a
+    /// radian while the magnitude does not move at all (ADR-023). A coat and a
+    /// chest at the same range have the same envelope; they do not have the same
+    /// phase history.
+    ///
+    /// **Interleaved rather than split `re`/`im`**, for two reasons that point
+    /// the same way. Consumers work a bin at a time — magnitude and phase of bin
+    /// `m`, or bin `m`'s phase across a dwell of pings — so the two halves of a
+    /// bin want to be adjacent rather than a whole range profile apart. And the
+    /// zero-copy wasm boundary can express one contiguous run of floats as one
+    /// `Float32Array` with one pointer and one length; split arrays would need a
+    /// second allocation or a second pointer/length pair, and every extra view
+    /// is another one a host can forget to re-take after memory growth detaches
+    /// it (see `abi`'s memory-growth contract).
+    ///
+    /// `lag0` is here because the caller is always range-gating anyway: it wants
+    /// the lags around its targets, not the lags from zero. Without it the only
+    /// way to read a gated window is to write the whole record's worth of
+    /// complex profile somewhere first, which is an allocation the magnitude
+    /// path never had to make.
+    pub fn complex_profile(&mut self, x: &[f32], lag0: usize, out: &mut [f32]) {
+        self.compress(x);
+        let lag0 = lag0.min(self.n);
+        let lags = (out.len() / 2).min(self.n - lag0);
+        for (m, pair) in out[..2 * lags].chunks_exact_mut(2).enumerate() {
+            pair[0] = self.buf_re[lag0 + m];
+            pair[1] = self.buf_im[lag0 + m];
+        }
+        for v in &mut out[2 * lags..] {
             *v = 0.0;
         }
     }
@@ -210,6 +259,41 @@ mod tests {
                 *slot += gain * s;
             }
         }
+    }
+
+    /// Place a delayed copy of the transmit waveform at a FRACTIONAL delay.
+    ///
+    /// Evaluated rather than interpolated: `chirp::sample_at` exists because
+    /// linear interpolation of a 20 kHz signal loses up to 11 dB depending on
+    /// the fractional offset, which would move the compressed magnitude around
+    /// and swamp the sub-sample effect the phase tests are measuring.
+    fn echo_at_frac(record: &mut [f32], spec: &ChirpSpec, delay: f32, gain: f32) {
+        let start = delay.floor().max(0.0) as usize;
+        let frac = delay - start as f32;
+        for i in 0..spec.len_samples() + 2 {
+            if let Some(slot) = record.get_mut(start + i) {
+                *slot += gain * chirp::sample_at(spec, (i as f32 - frac) / spec.fs);
+            }
+        }
+    }
+
+    /// Phase of bin `m` of an interleaved complex profile.
+    fn arg_at(iq: &[f32], m: usize) -> f32 {
+        iq[2 * m + 1].atan2(iq[2 * m])
+    }
+
+    /// Wrap to (-pi, pi], so a phase DIFFERENCE can be compared with a
+    /// prediction without either side having to agree on a branch cut.
+    fn wrap(phi: f32) -> f32 {
+        let tau = std::f32::consts::TAU;
+        let mut p = phi % tau;
+        if p > std::f32::consts::PI {
+            p -= tau;
+        }
+        if p < -std::f32::consts::PI {
+            p += tau;
+        }
+        p
     }
 
     fn argmax(v: &[f32]) -> usize {
@@ -421,6 +505,166 @@ mod tests {
     }
 
     #[test]
+    fn the_complex_profile_is_the_envelope_with_its_last_step_left_off() {
+        let spec = ChirpSpec::default();
+        let tx = chirp::synth_real(&spec);
+        let record_len = 16_384;
+        let mut rec = vec![0.0f32; record_len];
+        echo_at(&mut rec, &tx, 1_200, 1.0);
+        echo_at(&mut rec, &tx, 4_400, 0.3);
+
+        let mut mf = MatchedFilter::new(&spec, record_len, Window::Hann);
+        let mut env = vec![0.0f32; record_len];
+        mf.envelope(&rec, &mut env);
+        let mut iq = vec![0.0f32; 2 * record_len];
+        mf.complex_profile(&rec, 0, &mut iq);
+
+        // Bit-for-bit rather than within a tolerance. An epsilon here would pass
+        // just as happily if the complex path ran a SECOND transform of its own,
+        // and the whole point is that there is only one.
+        for (m, e) in env.iter().enumerate() {
+            let (r, i) = (iq[2 * m], iq[2 * m + 1]);
+            let mag = (r * r + i * i).sqrt();
+            assert_eq!(mag.to_bits(), e.to_bits(), "bin {m}: {mag} vs {e}");
+        }
+        assert!(env.iter().any(|v| *v > 0.1), "the record should compress");
+        assert!(
+            iq.chunks_exact(2).any(|p| p[1].abs() > 0.1),
+            "an all-real profile means the imaginary part is being dropped"
+        );
+    }
+
+    #[test]
+    fn a_lag_offset_selects_a_window_of_the_same_profile() {
+        let spec = ChirpSpec::default();
+        let tx = chirp::synth_real(&spec);
+        let record_len = 8_192;
+        let delay = 3_000usize;
+        let mut rec = vec![0.0f32; record_len];
+        echo_at(&mut rec, &tx, delay, 0.7);
+
+        let mut mf = MatchedFilter::new(&spec, record_len, Window::Rect);
+        let mut full = vec![0.0f32; 2 * record_len];
+        mf.complex_profile(&rec, 0, &mut full);
+
+        let lag0 = 2_900usize;
+        let mut gated = vec![0.0f32; 2 * 400];
+        mf.complex_profile(&rec, lag0, &mut gated);
+        for (i, v) in gated.iter().enumerate() {
+            assert_eq!(v.to_bits(), full[2 * lag0 + i].to_bits(), "float {i}");
+        }
+
+        // Past the end of the transform there is nothing to report, and the
+        // caller must not be handed the previous ping's phase instead.
+        let mut past = vec![1.0f32; 8];
+        mf.complex_profile(&rec, mf.fft_size() + 10, &mut past);
+        assert!(past.iter().all(|v| *v == 0.0), "{past:?}");
+    }
+
+    #[test]
+    fn a_matched_arrival_lands_in_quadrature_with_the_analytic_reference() {
+        // Derived, not observed. The transmit waveform is `a*w*sin(phi)` and the
+        // reference is `w*exp(j*phi)`; `sin(phi) = (e^{j phi} - e^{-j phi})/2j`
+        // and the one-sided reference annihilates the second term, so a
+        // perfectly aligned echo compresses to `(a/2j) * chi(0)` with `chi(0)`
+        // real and positive. Dividing by `j` is a quarter turn clockwise, so the
+        // peak sits at -pi/2 — at every delay, because at zero lag error the
+        // sweep's own quadratic phase cancels exactly.
+        let spec = ChirpSpec::default();
+        let tx = chirp::synth_real(&spec);
+        let record_len = 16_384;
+        let mut mf = MatchedFilter::new(&spec, record_len, Window::Rect);
+        let expected = -std::f32::consts::FRAC_PI_2;
+
+        for delay in [2_000usize, 6_133] {
+            let mut rec = vec![0.0f32; record_len];
+            echo_at(&mut rec, &tx, delay, 0.5);
+            let mut iq = vec![0.0f32; 2 * record_len];
+            mf.complex_profile(&rec, 0, &mut iq);
+
+            let mags: Vec<f32> = iq
+                .chunks_exact(2)
+                .map(|p| (p[0] * p[0] + p[1] * p[1]).sqrt())
+                .collect();
+            assert_eq!(argmax(&mags), delay, "peak should land on the delay");
+
+            let err = wrap(arg_at(&iq, delay) - expected);
+            // A tolerance of f32 rounding, not of modelling error. The term the
+            // derivation drops — the `e^{-j phi}` image, which lands around
+            // `2*f_c` — is not merely small here, it is annihilated: the matched
+            // bandpass keeps `[f0, f1]` and nothing else, so the real part of the
+            // peak is zero to the last bit rather than approximately.
+            assert!(
+                err.abs() < 1e-5,
+                "delay {delay}: phase {} rad, expected {expected} rad",
+                arg_at(&iq, delay)
+            );
+        }
+    }
+
+    #[test]
+    fn a_millimetre_of_range_moves_the_phase_by_four_pi_d_over_lambda() {
+        // ADR-023's discriminant, on the bench. Two identical targets a
+        // millimetre apart in range are indistinguishable in the envelope and
+        // separated by tens of degrees in phase.
+        //
+        // Two-way phase for a radial displacement `d` is `4*pi*d/lambda` with
+        // `lambda = c/f`. Both come out of arithmetic already in this crate: the
+        // test renders the echo with the same `c` it predicts with, so nothing
+        // physical is being asserted — only that the pipeline reports the phase
+        // its own geometry implies.
+        let spec = ChirpSpec::default();
+        let c = chirp::speed_of_sound(20.0);
+        let record_len = 16_384;
+        let bin = 5_000usize;
+
+        // The sweep's centre frequency: the compressed peak's phase advances at
+        // the band centre, not at either edge, because the matched filter's
+        // envelope is symmetric about it.
+        let f_c = 0.5 * (spec.f0 + spec.f1);
+        let lambda = c / f_c;
+        let d = 0.001f32; // one millimetre, well under lambda/4 so it cannot wrap
+        let expected = -4.0 * std::f32::consts::PI * d / lambda;
+        assert!(
+            expected.abs() < std::f32::consts::PI,
+            "the test displacement must not wrap: {expected} rad"
+        );
+
+        // Round trip is 2*d of extra path, hence 2*d/c seconds of extra delay.
+        let extra_lag = 2.0 * d / c * spec.fs;
+        let mut mf = MatchedFilter::new(&spec, record_len, Window::Rect);
+
+        let measure = |mf: &mut MatchedFilter, lag: f32| -> (f32, f32) {
+            let mut rec = vec![0.0f32; record_len];
+            echo_at_frac(&mut rec, &spec, lag, 1.0);
+            let mut iq = vec![0.0f32; 2 * record_len];
+            mf.complex_profile(&rec, 0, &mut iq);
+            let (r, i) = (iq[2 * bin], iq[2 * bin + 1]);
+            ((r * r + i * i).sqrt(), i.atan2(r))
+        };
+
+        let (mag_near, phi_near) = measure(&mut mf, bin as f32);
+        let (mag_far, phi_far) = measure(&mut mf, bin as f32 + extra_lag);
+
+        let moved = wrap(phi_far - phi_near);
+        assert!(
+            (moved - expected).abs() < 0.01,
+            "phase moved {moved} rad, wavelength says {expected} rad"
+        );
+
+        // And the reason ADR-023 was written: the magnitude path saw nothing.
+        // A millimetre of range is 0.28 of a sample against a mainlobe tens of
+        // samples wide, so the envelope cannot represent it even in principle,
+        // while the phase has turned by `4*pi*d/lambda` — about 40 degrees.
+        let rel = (mag_far - mag_near).abs() / mag_near;
+        assert!(
+            rel < 1e-3,
+            "the envelope moved by {rel} — a displacement this large is being \
+             measured as range, not as phase"
+        );
+    }
+
+    #[test]
     fn an_empty_or_short_record_does_not_panic() {
         let spec = ChirpSpec::default();
         let mut mf = MatchedFilter::new(&spec, 4096, Window::Hann);
@@ -429,5 +673,13 @@ mod tests {
         assert!(env.iter().all(|v| *v == 0.0));
         mf.envelope(&[0.1, -0.2, 0.3], &mut env);
         assert!(env.iter().all(|v| v.is_finite()));
+
+        // An odd-length complex buffer is a caller bug, not a panic: the last
+        // float has no partner, so it is left as the zero fill.
+        let mut iq = vec![1.0f32; 9];
+        mf.complex_profile(&[], 0, &mut iq);
+        assert!(iq.iter().all(|v| *v == 0.0), "{iq:?}");
+        mf.complex_profile(&[0.1, -0.2, 0.3], 4_000, &mut iq);
+        assert!(iq.iter().all(|v| v.is_finite()));
     }
 }
