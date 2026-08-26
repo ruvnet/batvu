@@ -1,0 +1,79 @@
+# Publish the explainer to GitHub Pages.
+#
+# The site is built rather than committed: `site/explainer.html` is the single
+# source, shared with the published Claude Artifact, and `scripts/build-site.mjs`
+# wraps it in a real document. `site/dist` is generated and gitignored, so there
+# is no second copy in the repository to drift out of step with the first.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    # Only when something the site is made of actually changed. A Pages deploy
+    # on every commit to main is noise, and it costs a queue slot the CI run
+    # could be using.
+    paths:
+      - 'site/**'
+      - 'scripts/build-site.mjs'
+      - 'docs/img/explainer-hero.jpg'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never cancel a deploy midway: a half-published site is worse than a stale
+# one. Queue instead.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # No submodules: the explainer is one self-contained file, and pulling
+      # the wasm submodules here would cost minutes for nothing.
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build the site
+        run: node scripts/build-site.mjs
+
+      - name: Check the built page is a whole document
+        # The build splits head from body on `</style>`. If the explainer's
+        # shape ever changes, this fails here rather than publishing a page
+        # that renders as plain text.
+        run: |
+          set -euo pipefail
+          test -f site/dist/index.html
+          grep -q '<!doctype html>' site/dist/index.html
+          grep -q '</body>' site/dist/index.html
+          grep -q 'og:image' site/dist/index.html
+          test -f site/dist/explainer-hero.jpg
+          echo "ok — $(wc -c < site/dist/index.html) bytes"
+
+      - uses: actions/configure-pages@v5
+        with:
+          # Turn Pages on if it is not already, so the first run of this
+          # workflow does not need somebody to visit the settings page.
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

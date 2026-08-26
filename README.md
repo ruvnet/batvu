@@ -16,6 +16,26 @@
   </sub>
 </p>
 
+<p align="center">
+  <a href="https://ruvnet.github.io/batvu/"><b>Read the explainer &rarr;</b></a>
+</p>
+
+<p align="center">
+  <a href="https://ruvnet.github.io/batvu/">
+    <img src="docs/img/explainer-hero.jpg" width="760"
+         alt="Title card of the explainer: the words HOW A PHONE SEES IN THE DARK set in heavy condensed type on near-black, with DARK picked out in sodium amber, rain falling across the frame and a faint expanding ring behind the type.">
+  </a>
+</p>
+
+<p align="center">
+  <sub>
+    A scroll-driven walk through the whole thing in plain language &mdash; why a
+    phone has to hum instead of shout, how silence maps a doorway, and the four
+    defects that sat behind green tests. <br>
+    Source is <code>site/explainer.html</code>; <code>npm run site</code> builds it.
+  </sub>
+</p>
+
 Stand still. Sweep the phone across the room like a torch. Fifteen times a
 second it emits a 17.5–20.5 kHz chirp you cannot hear, listens for the echo, and
 paints the answer onto a plan-position display.
