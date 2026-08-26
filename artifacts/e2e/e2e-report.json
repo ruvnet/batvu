@@ -18,7 +18,7 @@
     {
       "name": "echoes are detected",
       "ok": true,
-      "detail": "70 detections over 45 pings"
+      "detail": "63 detections over 45 pings"
     },
     {
       "name": "the sweep covers ground",
@@ -28,7 +28,7 @@
     {
       "name": "the occupancy map forms",
       "ok": true,
-      "detail": "13901 occupied voxels"
+      "detail": "9463 occupied voxels"
     },
     {
       "name": "a ping result is exposed",
@@ -58,17 +58,17 @@
     {
       "name": "ranges land inside the simulated room",
       "ok": true,
-      "detail": "[3.18]"
+      "detail": "[3.17]"
     },
     {
       "name": "#ppi renders visible content",
       "ok": true,
-      "detail": "17.65% of pixels lit"
+      "detail": "16.00% of pixels lit"
     },
     {
       "name": "#ascope renders visible content",
       "ok": true,
-      "detail": "3.62% of pixels lit"
+      "detail": "5.21% of pixels lit"
     },
     {
       "name": "#coverage renders visible content",
@@ -105,26 +105,26 @@
     "running": true,
     "mode": "demo",
     "pings": 45,
-    "detections": 70,
+    "detections": 63,
     "coverage": 0.05709876543209876,
-    "occupiedVoxels": 13901,
+    "occupiedVoxels": 9463,
     "lastResult": {
-      "blastAmplitude": 0.2700231671333313,
+      "blastAmplitude": 0.27002227306365967,
       "detections": [
         {
-          "amplitude": 0.03307799622416496,
-          "rangeM": 3.176140785217285,
-          "snrDb": 31.083969116210938,
-          "widthM": 0.17160731554031372
+          "amplitude": 0.0015134017448872328,
+          "rangeM": 3.1747984886169434,
+          "snrDb": 12.44597053527832,
+          "widthM": 0.16803216934204102
         }
       ],
       "envLen": 1512,
-      "noiseFloor": 0.00008116968820104375,
+      "noiseFloor": 0.00007556737546110526,
       "rangeStepM": 0.0035751524847000837,
       "sanitized": 0,
       "saturated": false,
-      "startRangeM": 0.5970379114151001,
-      "t0": 13.988932609558105
+      "startRangeM": 0.5970383882522583,
+      "t0": 13.988798141479492
     },
     "warnings": []
   }

@@ -27,12 +27,12 @@ The first run said something surprising.
 
 | stage | before | after | |
 |---|---:|---:|---|
-| dsp: compress + detect (wasm) | 1.06 ms | 1.06 ms | unchanged |
+| dsp: compress + detect (wasm) | 1.06 ms | **0.75 ms** | fewer detections to process after ADR-022 |
 | map: occupancy integrate (JS) | 8.01 ms | **0.27 ms** | 29× |
 | map: state signature (JS) | 7.15 ms | **0.000 ms** | O(n) → O(1) |
 | map: occupied count (JS) | 3.90 ms | **0.000 ms** | O(n) → O(1) |
-| **END TO END: one ping** | **8.99 ms** | **1.28 ms** | **7.0×** |
-| headroom in a 66.7 ms interval | 7× | **52×** | |
+| **END TO END: one ping** | **8.99 ms** | **1.32 ms** | **6.8×** |
+| headroom in a 66.7 ms interval | 7× | **51×** | |
 
 The sonar was never the problem. The DSP — a 32k-point FFT pair, a matched
 filter and a CFAR pass — cost 1 ms. The occupancy map cost **eight times that**,
@@ -59,9 +59,9 @@ in the same report is what turns that from an assertion into a fact.
 
 | stage | cost | % of a ping | where it runs |
 |---|---:|---:|---|
-| `field: encode one ping to .ultrasonic.jsonl` | 0.211 ms | 0.3% | per ping, alongside the DSP |
+| `field: encode one ping to .ultrasonic.jsonl` | 0.217 ms | 0.3% | per ping, alongside the DSP |
 | `field: project one ping to a FieldEvent` | 0.013 ms | 0.0% | per ping |
-| `memory: room signature over the whole grid` | **8.166 ms** | **12.2%** | **end of scan only** |
+| `memory: room signature over the whole grid` | **7.666 ms** | **11.5%** | **end of scan only** |
 
 The room signature is a full 1.7 M-voxel pass. On a phone that is 25–40 ms, so
 running it per ping would make it the most expensive thing on the main thread by
@@ -85,8 +85,8 @@ would buy nothing a user could feel.
 ## Reading the output
 
 ```
-  dsp: compress + detect (wasm)         0.986 ms   p95   1.104 ms     1.5% of a ping
-  END TO END: one ping, DSP + map       1.282 ms   p95   1.560 ms     1.9% of a ping
+  dsp: compress + detect (wasm)         0.750 ms   p95   0.809 ms     1.1% of a ping
+  END TO END: one ping, DSP + map       1.316 ms   p95   1.599 ms     2.0% of a ping
 ```
 
 `p95` is there because the median says what a typical ping costs and p95 says
@@ -106,6 +106,14 @@ regression is a red build rather than a slow phone six months later.
   `+simd128` is available and untried; the headroom means it has not been needed.
 - Nothing here measures battery or thermal behaviour, which for a sustained scan
   may bind well before compute does.
+- **The detection numbers moved under this file's feet once already.**
+  [ADR-022](adr/ADR-022-near-field-dynamic-range.md) corrected a 26.9 dB error in
+  the simulator's near-field dynamic range, which shrank the working range from a
+  claimed 4–5 m to a measured 3.8 m and made the DSP stage *faster*, because
+  there are fewer detections to process. Timings in this file are robust to that
+  sort of change; anything about detection quality is not, and
+  `bench_detection_envelope` (`npm run bench:rust`) is where the link budget is
+  now measured rather than assumed.
 - **None of this measures the thing that actually broke.**
   [ADR-021](adr/ADR-021-which-blast.md) documents a correctness bug on the live
   path that every benchmark, every test and the whole end-to-end run were

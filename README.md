@@ -2,6 +2,20 @@
 
 **An iPhone that pings the room in ultrasound and draws what comes back.**
 
+<p align="center">
+  <img src="docs/img/batvu-hero.png" width="330"
+       alt="BatVu running on a phone-sized screen. A plan-position display shows echoes drawn as bright arcs at roughly one to three metres, ringing a dark centre, with a pale wedge marking the beam the phone is currently pointing down. A sweep bar underneath shows which bearings have been covered. The counters read 230 pings, 326 echoes, 94% of bearings, 6% of the sphere, 22,262 voxels.">
+</p>
+
+<p align="center">
+  <sub>
+    Not a mock-up &mdash; the running app after a 230-ping sweep, arcs and all.
+    The subtitle says <em>Simulating</em> because it is: the simulator stands in
+    for the microphone, and the app admits that on its own face. <br>
+    <code>npm run hero</code> regenerates this from the live build.
+  </sub>
+</p>
+
 Stand still. Sweep the phone across the room like a torch. Fifteen times a
 second it emits a 17.5–20.5 kHz chirp you cannot hear, listens for the echo, and
 paints the answer onto a plan-position display.
@@ -29,8 +43,13 @@ It is also why you have to sweep. One ping locates nothing. The map sharpens
 where arcs from different directions cross — which is roughly what a bat gets
 from turning its head, and it is the honest version of "seeing like a bat".
 
-**Honest envelope:** about **0.6 m to 4–5 m** against hard flat surfaces, less
-against soft ones, with a realisable range resolution of **9.6 cm**. It will not
+**Honest envelope:** about **0.6 m to 3.8 m** against hard flat surfaces —
+ragged out to 4.3, nothing beyond — less against soft ones, with a realisable
+range resolution of **9.6 cm**. That upper figure used to read "4–5 m"; it was
+measured against a simulator giving away 26 dB in the near field
+([ADR-022](docs/adr/ADR-022-near-field-dynamic-range.md)), and
+`bench_detection_envelope` now measures where the link budget actually runs
+out. It will not
 see a black cat on a carpet. Below 0.6 m the outgoing pulse drowns everything
 out, and the display shows that as a blind disc rather than as empty space.
 
@@ -161,10 +180,22 @@ Both times the gate refused to promote anything, and both times the honest fix
 was the projection rather than the gate. With the axes right, the wheel climbs:
 
 ```
-gen 0  primary 0.0564            anchor 0.0522
-gen 1  primary 0.1437  +0.0873   anchor 0.1742
-gen 2  primary 0.2420  +0.0983   anchor 0.3398   <- never optimised against
+gen 0  primary 0.0580            anchor 0.0939
+gen 1  primary 0.1259  +0.0679   anchor 0.1187   mapping
+gen 2  primary 0.2112  +0.0853   anchor 0.2694   detector
+gen 3  primary 0.2161  +0.0049   anchor 0.2741   waveform   <- never moved before
 ```
+
+That last row is the interesting one. The `waveform` lever used to be the one the
+frozen gate never promoted, and that was written down as a fact about the
+waveform. It was a fact about the simulator: with the near-field link budget
+corrected ([ADR-022](docs/adr/ADR-022-near-field-dynamic-range.md)) far returns
+are genuinely marginal, bandwidth and taper start paying for themselves, and the
+wheel now walks from a deliberately bad root to **17.5–20.5 kHz, 5 ms, full Hann**
+— the operating point [ADR-003](docs/adr/ADR-003-the-waveform.md) and
+[ADR-004](docs/adr/ADR-004-tapers.md) argue for by hand. An empirical search and
+a physics argument arrived at the same place without either knowing about the
+other.
 
 ([ADR-014](docs/adr/ADR-014-flywheel.md))
 
@@ -225,9 +256,9 @@ circular shift multiplies each coefficient by a unit complex number, so the
 **magnitude** spectrum is unchanged. Exactly.
 
 ```
-worst same-room similarity, over a full turn of heading   0.9999
-best different-room pair (corridor vs living room)        0.8623
-                                              separation  0.1376
+worst same-room similarity, over a full turn of heading   0.9998
+best different-room pair (corridor vs living room)        0.7784
+                                              separation  0.2214
 ```
 
 Measured on four simulator rooms
@@ -245,17 +276,17 @@ translation, so the recognisable unit is a *standing spot*, not a room.)
 
 ## Performance
 
-One ping — compress, detect, and fold into the map — costs **1.28 ms** of a
+One ping — compress, detect, and fold into the map — costs **1.32 ms** of a
 66.7 ms budget. The interesting part is where it started: 8.99 ms, of which the
 DSP was 1.06 ms and the *map bookkeeping* was 7.8 ms, because reporting how much
 had changed rescanned 1.7 million voxels twice per ping.
 
 | | before | after |
 |---|---:|---:|
-| occupancy integrate | 8.01 ms | 0.25 ms |
+| occupancy integrate | 8.01 ms | 0.23 ms |
 | map signature | 7.15 ms | 0.000 ms |
-| **one ping, end to end** | **8.99 ms** | **1.28 ms** |
-| headroom in a 66.7 ms interval | 7× | **52×** |
+| **one ping, end to end** | **8.99 ms** | **1.32 ms** |
+| headroom in a 66.7 ms interval | 7× | **51×** |
 
 The two integration stages are measured in the same report, and they answer
 opposite questions:
@@ -264,7 +295,7 @@ opposite questions:
 |---|---:|---|
 | encode one ping to `.ultrasonic.jsonl` | 0.21 ms | fits alongside the DSP |
 | project one ping to a `FieldEvent` | 0.01 ms | negligible |
-| room signature over the whole grid | **8.17 ms** | **12% of a ping — end of scan only** |
+| room signature over the whole grid | **7.67 ms** | **12% of a ping — end of scan only** |
 
 That last row is why the room signature runs when a scan finishes and never
 inside `pingWithBeam`. At fifteen pings a second on a phone it would be the most
@@ -281,7 +312,7 @@ come from.
 
 ## Documentation
 
-- **[Architecture decisions](docs/adr/)** — 21 records. The eight that were
+- **[Architecture decisions](docs/adr/)** — 22 records. The nine that were
   reversed mid-build are listed first, because in each case the first version
   looked right.
 - **[Security](docs/SECURITY.md)** — the threat model, and the three real defects
@@ -326,12 +357,11 @@ disagreed with the previous ranking:
    acquisition. A record just longer than one pulse repetition interval bounds
    the blast ambiguity ([ADR-021](docs/adr/ADR-021-which-blast.md)) to two
    candidates *and* cuts the FFT cost.
-3. **Fix the simulator's near-field dynamic range.** It gives the direct path a
-   flat gain with no spreading and uses `1/r` for walls where the image-source
-   model says `1/(2r)`, so it understates the blast-to-echo ratio by roughly
-   27 dB — the exact quantity blast cancellation exists to fight. Every
-   near-field number in this repository is measured against that, and one of the
-   two bugs found this cycle came from depending on it.
+3. ~~**Fix the simulator's near-field dynamic range.**~~ Done —
+   [ADR-022](docs/adr/ADR-022-near-field-dynamic-range.md). It understated the
+   blast-to-echo ratio by 26.9 dB. The remaining open question there is whether
+   `absorption_db_per_m` should be ~0.52 rather than 0.8, which needs ISO 9613-1
+   computed properly for the band.
 
 And still, above all of them: **a real-hardware measurement campaign.** Every
 number here is from a simulator that agrees with the physical model by

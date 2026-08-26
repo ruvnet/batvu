@@ -15,9 +15,16 @@
 //!   It sets the blind zone, and — because it is the one arrival whose timing we
 //!   know exactly — it is also the synchronisation reference that cancels the
 //!   browser's unknown output/input latency.
-//! * **Two-way spreading loss.** `1/r^2` for a compact object, `1/r` for a large
-//!   flat surface like a wall. Getting this wrong makes far targets look far too
-//!   easy.
+//! * **Two-way spreading loss.** `1/r^2` for a compact object, `1/(2r)` for a
+//!   large flat surface — the returning wavefront curves as if from the phone's
+//!   mirror image, which is `2r` away. Getting this wrong makes far targets look
+//!   far too easy.
+//! * **A blast that pays for its own short path.** The direct arrival used to be
+//!   a bare constant while every echo paid spreading and absorption, which left
+//!   it ~11 dB above a wall at 2.4 m where the physics says ~38. That is the
+//!   exact quantity blast cancellation exists to fight, so the near field — the
+//!   hardest part of this sensor — was being simulated at a difficulty it does
+//!   not have. See `direct_amplitude`.
 //! * **Atmospheric absorption**, which at 20 kHz is the term people forget:
 //!   roughly 0.6-1.0 dB/m in ordinary indoor air, paid twice on a round trip.
 //!   At 6 m that is another ~10 dB gone.
@@ -63,7 +70,12 @@ pub struct SceneConfig {
     pub absorption_db_per_m: f32,
     /// Speaker-to-microphone separation, metres.
     pub speaker_mic_sep_m: f32,
-    /// Amplitude of the direct-path leakage relative to the transmit level.
+    /// TARGET amplitude of the direct-path blast, linear full-scale.
+    ///
+    /// Not a gain any more: the whole record is scaled so the blast lands here.
+    /// Echo amplitudes follow from the geometry relative to it, which is the
+    /// only way the blast-to-echo ratio can be right and the record can still
+    /// fit inside an ADC. See `render`.
     pub direct_path_gain: f32,
     /// RMS of the additive noise floor, linear full-scale.
     pub noise_rms: f32,
@@ -84,7 +96,7 @@ impl Default for SceneConfig {
             temperature_c: 20.0,
             absorption_db_per_m: 0.8,
             speaker_mic_sep_m: 0.10,
-            direct_path_gain: 0.9,
+            direct_path_gain: DEFAULT_BLAST_LEVEL,
             noise_rms: 2e-3,
             latency_samples: 0,
             record_len: 24_000,
@@ -95,13 +107,55 @@ impl Default for SceneConfig {
 }
 
 /// Two-way echo amplitude for one target, before the transmit level is applied.
+///
+/// The two limits have genuinely different geometry, and the exponent alone does
+/// not capture it:
+///
+/// * A **compact** scatterer spreads spherically on the way out and again on the
+///   way back — `1/r` twice, so `1/r^2`.
+/// * An **extended specular** surface does not scatter. It reflects, and the
+///   returning wavefront has the curvature of a source at the MIRROR IMAGE of
+///   the phone, which sits `2r` away — so `1/(2r)`, not `1/r`.
+///
+/// That factor of two is 6 dB, and it was missing. It is folded in through
+/// `image_source`, which is 0.5 in the extended limit and 1.0 in the compact
+/// one, so both endpoints are now right and the continuous knob between them
+/// still behaves.
 pub fn echo_amplitude(t: &Target, cfg: &SceneConfig) -> f32 {
     let r = t.range_m.max(0.01);
-    let spread = 1.0 / r.powf(t.spreading.clamp(0.5, 3.0));
+    let s = t.spreading.clamp(0.5, 3.0);
+    // 1.0 at s = 1 (fully extended), 0.0 at s = 2 (fully compact).
+    let extended = (2.0 - s).clamp(0.0, 1.0);
+    let image_source = 0.5f32.powf(extended);
+    let spread = image_source / r.powf(s);
     // Absorption is paid on the way out and on the way back.
     let absorb_db = -2.0 * cfg.absorption_db_per_m * r;
     let absorb = 10.0f32.powf(absorb_db / 20.0);
     t.reflectivity * spread * absorb
+}
+
+/// Default target level for the direct-path blast, linear full-scale.
+///
+/// Also the reference used when a caller omits the blast entirely, so echo
+/// amplitudes do not silently change scale between the two modes.
+pub const DEFAULT_BLAST_LEVEL: f32 = 0.9;
+
+/// Amplitude of the direct speaker-to-microphone leak, before normalisation.
+///
+/// This is the arrival that used to be a bare constant, and the bare constant is
+/// what made the whole simulator wrong about the near field. The blast travels
+/// the speaker-mic baseline — about ten centimetres — ONE way, and so earns the
+/// enormous near-range gain that short path implies. Every echo paid spreading
+/// and absorption; the one arrival that should have been loudest paid nothing,
+/// and came out only ~11 dB above a wall at 2.4 m instead of the ~38 dB physics
+/// gives. This module's own opening paragraph said "tens of dB above any echo".
+/// The documentation was right and the code never implemented it.
+pub fn direct_amplitude(cfg: &SceneConfig) -> f32 {
+    let d = cfg.speaker_mic_sep_m.max(1e-3);
+    // One-way spherical spreading and one-way absorption, on the same
+    // normalised-at-one-metre convention `echo_amplitude` uses.
+    let absorb = 10.0f32.powf(-cfg.absorption_db_per_m * d / 20.0);
+    absorb / d
 }
 
 /// Sample index at which a target's echo arrives, given the direct-path offset.
@@ -127,18 +181,43 @@ pub fn direct_index(spec: &ChirpSpec, cfg: &SceneConfig) -> f32 {
 pub fn render(spec: &ChirpSpec, targets: &[Target], cfg: &SceneConfig) -> Vec<f32> {
     let mut rec = vec![0.0f32; cfg.record_len];
 
-    add_delayed(
-        &mut rec,
-        spec,
-        direct_index(spec, cfg),
-        cfg.direct_path_gain,
-    );
+    // Scale every arrival by one factor, chosen so the blast lands exactly on
+    // `direct_path_gain`.
+    //
+    // The quantity that was wrong is the RATIO, not the level. Giving the direct
+    // path its real near-range gain makes it ~10x full scale on its own, and a
+    // record that clips is a different distortion — one that would break what
+    // `saturated` means. Pinning the blast where it already sat keeps the ADC
+    // realism and the blind-zone geometry unchanged while every echo moves to
+    // where it belongs relative to it.
+    //
+    // `direct_path_gain: 0.0` keeps its old meaning — OMIT the blast — rather
+    // than becoming "scale the whole record to silence". Tests that isolate
+    // echo behaviour set it, and they need echoes at the same absolute scale
+    // they would have had with the blast present, so the reference level falls
+    // back to the default instead of to zero.
+    let draw_blast = cfg.direct_path_gain > 0.0;
+    let target = if draw_blast {
+        cfg.direct_path_gain
+    } else {
+        DEFAULT_BLAST_LEVEL
+    };
+    let level = target / direct_amplitude(cfg).max(1e-9);
+
+    if draw_blast {
+        add_delayed(
+            &mut rec,
+            spec,
+            direct_index(spec, cfg),
+            direct_amplitude(cfg) * level,
+        );
+    }
     for t in targets {
         add_delayed(
             &mut rec,
             spec,
             echo_index(t, spec, cfg),
-            echo_amplitude(t, cfg),
+            echo_amplitude(t, cfg) * level,
         );
     }
 
@@ -346,10 +425,18 @@ mod tests {
         let ratio = far / near;
         assert!(ratio < 1.0 / 16.0 && ratio > 1.0 / 40.0, "ratio {ratio}");
 
+        // A wall still beats a compact target at the same range, but by exactly
+        // 2x rather than the 4x the old model gave. Both terms are now the
+        // physics: the compact one spreads spherically twice (`1/r^2`), and the
+        // extended one reflects, so its wavefront curves as if from the phone's
+        // mirror image at `2r` (`1/(2r)`). At r = 4 that is 0.125 against
+        // 0.0625. The old `1/r` omitted the image-source factor of two, which
+        // is 6 dB of wall return this simulator was inventing.
         let wall = echo_amplitude(&Target::wall(4.0, 1.0), &cfg);
+        let advantage = wall / far;
         assert!(
-            wall > far * 3.0,
-            "a wall should dwarf a point target: {wall} vs {far}"
+            (advantage - 2.0).abs() < 1e-4,
+            "an extended surface should beat a compact one by exactly 2x at this range, got {advantage}x ({wall} vs {far})"
         );
     }
 

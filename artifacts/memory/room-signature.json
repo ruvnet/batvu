@@ -6,50 +6,50 @@
   "version": 2,
   "coverage": 0.1111111111111111,
   "azimuthSupport": 64,
-  "occupiedVoxels": 17041,
-  "knownVoxels": 102871,
-  "meanRangeM": 2.89677338770809,
+  "occupiedVoxels": 16206,
+  "knownVoxels": 99591,
+  "meanRangeM": 2.916427819884058,
   "headingSweep": [
     {
       "headingDeg": 0,
-      "similarity": 1.0000000000000002
+      "similarity": 1
     },
     {
       "headingDeg": 23,
-      "similarity": 0.9998993972386274
+      "similarity": 0.9999128066891902
     },
     {
       "headingDeg": 90,
-      "similarity": 1.0000000000000002
+      "similarity": 1
     },
     {
       "headingDeg": 187,
-      "similarity": 0.9999191255192492
+      "similarity": 0.9998989353027076
     },
     {
       "headingDeg": 301,
-      "similarity": 0.9998977869414799
+      "similarity": 0.9998020166984282
     }
   ],
   "differentRooms": [
     {
       "room": "corridor",
-      "similarity": 0.8622619524243821
+      "similarity": 0.6919083359433623
     },
     {
       "room": "cluttered-office",
-      "similarity": 0.7873657114822874
+      "similarity": 0.7783983178130445
     },
     {
       "room": "small-bathroom",
-      "similarity": 0.7415643265117626
+      "similarity": 0.7413310378570365
     },
     {
       "room": "empty-hall",
-      "similarity": 0.7523673945995218
+      "similarity": 0.74044118327515
     }
   ],
-  "worstSameRoom": 0.9998977869414799,
-  "bestDifferentRoom": 0.8622619524243821,
-  "separation": 0.13763583451709782
+  "worstSameRoom": 0.9998020166984282,
+  "bestDifferentRoom": 0.7783983178130445,
+  "separation": 0.2214036988853837
 }
