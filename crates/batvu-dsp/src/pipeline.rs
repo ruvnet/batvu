@@ -580,6 +580,36 @@ mod tests {
         assert!(spread < 0.01, "range spread across latencies: {spread} m");
     }
 
+    /// Where the link budget actually runs out, measured rather than assumed.
+    ///
+    /// `npm run bench:rust` prints this. It exists because the README quotes a
+    /// working range, and after the near-field correction that number had to
+    /// come from somewhere other than the previous README.
+    #[test]
+    #[ignore]
+    fn bench_detection_envelope() {
+        let cfg = SonarConfig::default();
+        println!("\n  hard flat surface, reflectivity 0.85, noise_rms 2e-3\n");
+        println!("  {:>6}  {:>10}  {:>8}", "range", "detected", "snr");
+        for step in 0..22 {
+            let r = 0.8 + step as f32 * 0.25;
+            let sc = SceneConfig {
+                record_len: 32_000,
+                ..Default::default()
+            };
+            let rec = scene(&[Target::wall(r, 0.85)], &cfg, &sc);
+            let mut p = Pipeline::new(cfg.clone(), sc.record_len);
+            let prof = p.process(&rec);
+            match nearest(&prof.detections, r) {
+                Some(d) if (d.range_m - r).abs() < 0.25 => {
+                    println!("  {r:>5.2}m  {:>10}  {:>7.1}dB", "yes", d.snr_db)
+                }
+                _ => println!("  {r:>5.2}m  {:>10}  {:>8}", "--", "--"),
+            }
+        }
+        println!();
+    }
+
     #[test]
     fn two_walls_are_both_found() {
         let cfg = SonarConfig::default();
@@ -587,14 +617,21 @@ mod tests {
             record_len: 32_000,
             ..Default::default()
         };
-        let rec = scene(&[Target::wall(1.5, 0.9), Target::wall(4.2, 0.8)], &cfg, &sc);
+        // The far wall sits at 3.4 m, not the 4.2 m it used to. Not because the
+        // test was failing — because 4.2 m is now inside the RAGGED band of the
+        // link budget (`bench_detection_envelope`: reliable to ~3.8 m, hit and
+        // miss to ~4.3, nothing past it), and a resolution test that also
+        // doubles as an undeclared maximum-range assertion will fail for the
+        // wrong reason every time the budget moves. Range is documented by the
+        // probe; this test is about telling two surfaces apart.
+        let rec = scene(&[Target::wall(1.5, 0.9), Target::wall(3.4, 0.8)], &cfg, &sc);
         let mut p = Pipeline::new(cfg.clone(), sc.record_len);
         let prof = p.process(&rec);
 
         let near = nearest(&prof.detections, 1.5).expect("near wall");
-        let far = nearest(&prof.detections, 4.2).expect("far wall");
+        let far = nearest(&prof.detections, 3.4).expect("far wall");
         assert!((near.range_m - 1.5).abs() < 0.02, "near {}", near.range_m);
-        assert!((far.range_m - 4.2).abs() < 0.03, "far {}", far.range_m);
+        assert!((far.range_m - 3.4).abs() < 0.03, "far {}", far.range_m);
         assert!(
             near.amplitude > far.amplitude,
             "the near wall must be louder"

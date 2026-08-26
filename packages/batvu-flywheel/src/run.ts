@@ -67,8 +67,17 @@ export interface SonarFlywheelReport {
  * The proposer is deterministic and model-free — a step up a lever's ladder. No
  * network, no model call, so the whole run reproduces in CI and its replay
  * bundle verifies offline. The ladders encode a physics hypothesis; the gate is
- * what decides whether the hypothesis held on this suite, and on the stock suite
- * it rejects the `waveform` ladder's second rung outright.
+ * what decides whether the hypothesis held on this suite.
+ *
+ * The `waveform` lever used to be the one the gate never promoted, and that
+ * turned out to be a fact about the SIMULATOR rather than about the waveform.
+ * With the near-field dynamic range corrected (ADR-022) the link budget is
+ * roughly 26 dB tighter, far returns are genuinely marginal, and bandwidth and
+ * taper start to pay for themselves. The wheel now walks the waveform ladder to
+ * 17.5-20.5 kHz, 5 ms, full Hann — which is the operating point ADR-003 and
+ * ADR-004 argued for by hand, arrived at independently from a deliberately bad
+ * root. That agreement is worth more than either result alone, and it was
+ * invisible while the physics was wrong.
  */
 export async function runSonarFlywheel(
   options: SonarFlywheelOptions = {},

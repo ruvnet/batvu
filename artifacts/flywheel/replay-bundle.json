@@ -1,30 +1,37 @@
 {
   "gateFingerprint": "b730019b67f5c0dd1aacb8674ce46933be9ff91c499eea87875fff3d0372e36d",
   "replayVerified": true,
-  "chainSummary": "gen2(detector) → gen1(mapping) → gen0(root)",
+  "chainSummary": "gen3(waveform) → gen2(detector) → gen1(mapping) → gen0(root)",
   "milestoneReached": true,
   "generationsRun": 5,
   "liftCurve": [
     {
       "generation": 0,
-      "primary": 0.056411879563203884,
+      "primary": 0.057970620124191005,
       "delta": 0,
-      "anchor": 0.05219939062129532
+      "anchor": 0.09388823546115463
     },
     {
       "generation": 1,
-      "primary": 0.14371844799896624,
-      "delta": 0.08730656843576236,
-      "anchor": 0.1741899051957957
+      "primary": 0.12591220020107857,
+      "delta": 0.06794158007688757,
+      "anchor": 0.11869717313566586
     },
     {
       "generation": 2,
-      "primary": 0.24201016906542067,
-      "delta": 0.09829172106645442,
-      "anchor": 0.339771305001739
+      "primary": 0.21122603853099337,
+      "delta": 0.08531383832991479,
+      "anchor": 0.26936697257542014
+    },
+    {
+      "generation": 3,
+      "primary": 0.21613444419706615,
+      "delta": 0.004908405666072785,
+      "anchor": 0.2741015172066039
     }
   ],
   "promotionNotes": [
+    "gen3: waveform: f0 19000 -> 17500, f1 20000 -> 20500, durationS 0.004 -> 0.005, txWindow rect -> hann, tukeyAlpha 0 -> 1, amplitude 0.45 -> 0.6",
     "gen2: detector: cfarGuardMainlobes 1.02 -> 1.5, cfarTrainRatio 1 -> 2, cfarPfa 0.01 -> 0.0001, cfarMergeGapMainlobes 0.25 -> 1, cfarMinProminenceDb 1 -> 6, minSnrDb 2 -> 6",
     "gen1: mapping: beamHalfAngleDeg 60 -> 45, logOddsHit 0.3 -> 0.6, logOddsMiss 0.1 -> 0.25, occupiedThreshold 0.25 -> 1, freeMarginM 0.02 -> 0.08, snrReferenceDb 40 -> 30"
   ],
@@ -34,7 +41,7 @@
     "mapping": "beamHalfAngleDeg=60;logOddsHit=0.3;logOddsMiss=0.1;occupiedThreshold=0.25;freeMarginM=0.02;snrReferenceDb=40"
   },
   "finalPolicy": {
-    "waveform": "f0=19000;f1=20000;durationS=0.004;txWindow=rect;tukeyAlpha=0;amplitude=0.45;rxTaper=rect",
+    "waveform": "f0=17500;f1=20500;durationS=0.005;txWindow=hann;tukeyAlpha=1;amplitude=0.6;rxTaper=rect",
     "detector": "cfarKind=ca;cfarGuardMainlobes=1.5;cfarTrainRatio=2;cfarPfa=0.0001;cfarOsRankFrac=0.75;cfarMergeGapMainlobes=1;cfarMinProminenceDb=6;minSnrDb=6",
     "mapping": "beamHalfAngleDeg=45;logOddsHit=0.6;logOddsMiss=0.25;occupiedThreshold=1;freeMarginM=0.08;snrReferenceDb=30"
   },
@@ -42,6 +49,46 @@
     "data_source": "SYNTHETIC",
     "root_id": "root",
     "chain": [
+      {
+        "id": "root__mapping_gen1__detector_gen2__waveform_gen3",
+        "generation": 3,
+        "parents": [
+          "root__mapping_gen1__detector_gen2"
+        ],
+        "mutation": {
+          "target": "waveform",
+          "summary": "waveform: f0 19000 -> 17500, f1 20000 -> 20500, durationS 0.004 -> 0.005, txWindow rect -> hann, tukeyAlpha 0 -> 1, amplitude 0.45 -> 0.6"
+        },
+        "primaryDelta": 0.004908405666072785,
+        "anchorScore": 0.2741015172066039,
+        "verdict": "PROMOTED",
+        "failureReasons": [],
+        "receipt": {
+          "payload": {
+            "kind": "candidate",
+            "id": "root__mapping_gen1__detector_gen2__waveform_gen3",
+            "target": "waveform",
+            "verdict": "PROMOTED",
+            "primaryDelta": 0.004908405666072785
+          },
+          "signature": "RE3G7RHTzdCp9ZCDDBtZWoatamk9YTopqh2+v5VebL+DJ2O90uAojjRcGIsiNo6b5hk8sSF31RHidkpgKxzDCA==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
+          "alg": "ed25519"
+        },
+        "createdAt": "gen-3",
+        "baselineScore": {
+          "primary": 0.21122603853099337,
+          "noopRate": 0.9272841779688157,
+          "costPerWin": 13.225861925355748,
+          "regressed": false
+        },
+        "candidateScore": {
+          "primary": 0.21613444419706615,
+          "noopRate": 0.666915980199354,
+          "costPerWin": 12.27809405344413,
+          "regressed": false
+        }
+      },
       {
         "id": "root__mapping_gen1__detector_gen2",
         "generation": 2,
@@ -52,8 +99,8 @@
           "target": "detector",
           "summary": "detector: cfarGuardMainlobes 1.02 -> 1.5, cfarTrainRatio 1 -> 2, cfarPfa 0.01 -> 0.0001, cfarMergeGapMainlobes 0.25 -> 1, cfarMinProminenceDb 1 -> 6, minSnrDb 2 -> 6"
         },
-        "primaryDelta": 0.09829172106645442,
-        "anchorScore": 0.339771305001739,
+        "primaryDelta": 0.08531383832991479,
+        "anchorScore": 0.26936697257542014,
         "verdict": "PROMOTED",
         "failureReasons": [],
         "receipt": {
@@ -62,23 +109,23 @@
             "id": "root__mapping_gen1__detector_gen2",
             "target": "detector",
             "verdict": "PROMOTED",
-            "primaryDelta": 0.09829172106645442
+            "primaryDelta": 0.08531383832991479
           },
-          "signature": "JVWDlbvQz1hdBMbDE+2NRfF30frSyBAjbiTVApbB8oJFpZ/rGiF8krjKKJrvaf/4W/apty/9NrELKDbal8EaBQ==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "yJEaYUken0iwGuTu+Hage3BCAfbCZB9O1FVgL2ceP7v/EFmmeMtcIV6vJGrpxgF6D/jvrZBKYlrKyBIfYxp0Cg==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
         "createdAt": "gen-2",
         "baselineScore": {
-          "primary": 0.14371844799896624,
-          "noopRate": 0.9758370936275144,
-          "costPerWin": 35.025228726517796,
+          "primary": 0.12591220020107857,
+          "noopRate": 0.9728867230554288,
+          "costPerWin": 39.81811787520411,
           "regressed": false
         },
         "candidateScore": {
-          "primary": 0.24201016906542067,
-          "noopRate": 0.901940576296305,
-          "costPerWin": 14.307671833373693,
+          "primary": 0.21122603853099337,
+          "noopRate": 0.9272841779688157,
+          "costPerWin": 13.225861925355748,
           "regressed": false
         }
       },
@@ -92,8 +139,8 @@
           "target": "mapping",
           "summary": "mapping: beamHalfAngleDeg 60 -> 45, logOddsHit 0.3 -> 0.6, logOddsMiss 0.1 -> 0.25, occupiedThreshold 0.25 -> 1, freeMarginM 0.02 -> 0.08, snrReferenceDb 40 -> 30"
         },
-        "primaryDelta": 0.08730656843576236,
-        "anchorScore": 0.1741899051957957,
+        "primaryDelta": 0.06794158007688757,
+        "anchorScore": 0.11869717313566586,
         "verdict": "PROMOTED",
         "failureReasons": [],
         "receipt": {
@@ -102,23 +149,23 @@
             "id": "root__mapping_gen1",
             "target": "mapping",
             "verdict": "PROMOTED",
-            "primaryDelta": 0.08730656843576236
+            "primaryDelta": 0.06794158007688757
           },
-          "signature": "v5pDu4zQVnvZxS+OtBrqwZp6/i6nedq8weAm17qznRFdpRCzZin1AM2NwgGOn2cstL/FDHRDVH9PewB4eWnCBA==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "mdBc4o2eWN6yvM7m8zCSEP0XBKEA4w4eTXofwHUiq9na+oRA1jzFrLR78oLHw6bdtTAMtWY9+4+N67FBXz5lDQ==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
         "createdAt": "gen-1",
         "baselineScore": {
-          "primary": 0.056411879563203884,
-          "noopRate": 0.9960332110616271,
-          "costPerWin": 172.7413869994332,
+          "primary": 0.057970620124191005,
+          "noopRate": 0.9964112653080633,
+          "costPerWin": 469.7624041157898,
           "regressed": false
         },
         "candidateScore": {
-          "primary": 0.14371844799896624,
-          "noopRate": 0.9758370936275144,
-          "costPerWin": 35.025228726517796,
+          "primary": 0.12591220020107857,
+          "noopRate": 0.9728867230554288,
+          "costPerWin": 39.81811787520411,
           "regressed": false
         }
       },
@@ -128,7 +175,7 @@
         "parents": [],
         "mutation": null,
         "primaryDelta": 0,
-        "anchorScore": 0.05219939062129532,
+        "anchorScore": 0.09388823546115463,
         "verdict": "ROOT",
         "failureReasons": [],
         "receipt": {
@@ -136,8 +183,8 @@
             "kind": "root",
             "root": "root"
           },
-          "signature": "tL9oqrfzya8KGQ1/8Tp3QSmtwdAfdOHiehgwGWxNMQB3LQBEIkg1PpqhAxGPRSGB2Iyg0n4kMEdbMaraIj9eDQ==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "/aqxGGFvDEWjHy31l19hZnPIi21iVItl+UHiqdrOrznFzHev3Vl1WHQhIM9KEs2UW8YXiAyAwaOJd8K4cI8kBw==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
         "createdAt": "gen-0"
@@ -154,13 +201,11 @@
           "target": "waveform",
           "summary": "waveform: f0 19000 -> 18500, f1 20000 -> 20500, txWindow rect -> tukey, tukeyAlpha 0 -> 0.3, amplitude 0.45 -> 0.5"
         },
-        "primaryDelta": -0.013226356565091385,
+        "primaryDelta": -0.014619681753422292,
         "anchorScore": null,
         "verdict": "REJECTED",
         "failureReasons": [
-          "primary_regressed",
-          "noop_rate_not_improved",
-          "cost_per_win_worsened"
+          "primary_regressed"
         ],
         "receipt": {
           "payload": {
@@ -168,23 +213,23 @@
             "id": "root__waveform_gen1",
             "target": "waveform",
             "verdict": "REJECTED",
-            "primaryDelta": -0.013226356565091385
+            "primaryDelta": -0.014619681753422292
           },
-          "signature": "B46atOePVMdcaDOxTGn/P4wqArC6B/kDPnZPnaQS1kCEO3Rv4liJVoJTDESFYimP30awHS1yJ/DF9pr3HUjVDQ==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "5W/N+IkLVR7tHAismwWYSHMRRisArlWZk9M8lPQRcLUqiitrAf5sAZ7JieNYCDcqqLnu2iKR0tzwRMRJLwdRBg==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
         "createdAt": "gen-1",
         "baselineScore": {
-          "primary": 0.056411879563203884,
-          "noopRate": 0.9960332110616271,
-          "costPerWin": 172.7413869994332,
+          "primary": 0.057970620124191005,
+          "noopRate": 0.9964112653080633,
+          "costPerWin": 469.7624041157898,
           "regressed": false
         },
         "candidateScore": {
-          "primary": 0.0431855229981125,
-          "noopRate": 0.9969944866038232,
-          "costPerWin": 445.9261763875593,
+          "primary": 0.04335093837076871,
+          "noopRate": 0.995816425323458,
+          "costPerWin": 315.51148898090815,
           "regressed": false
         }
       },
@@ -198,7 +243,7 @@
           "target": "detector",
           "summary": "detector: cfarGuardMainlobes 1.02 -> 1.2, cfarTrainRatio 1 -> 1.5, cfarPfa 0.01 -> 0.001, cfarMergeGapMainlobes 0.25 -> 0.6, cfarMinProminenceDb 1 -> 4, minSnrDb 2 -> 4"
         },
-        "primaryDelta": 0.05073183205604519,
+        "primaryDelta": 0.026605434936801495,
         "anchorScore": null,
         "verdict": "REJECTED",
         "failureReasons": [],
@@ -208,23 +253,23 @@
             "id": "root__detector_gen1",
             "target": "detector",
             "verdict": "REJECTED",
-            "primaryDelta": 0.05073183205604519
+            "primaryDelta": 0.026605434936801495
           },
-          "signature": "jgq+cNwmVKuhXVAqwNnAJMfpfk8yozwdue2sets3pBL4e8nlSWHqtw+dsoyB/8Xmmfs2hZWWicUrJAeyuqMqAQ==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "M4VcseoVVokosOgG1+NwpQt9avUwkwT5oPonfdw+X5IWVxBZ8rCLh/obMi4XQW4LzTiZdItJT+picrMdFhBUAQ==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
         "createdAt": "gen-1",
         "baselineScore": {
-          "primary": 0.056411879563203884,
-          "noopRate": 0.9960332110616271,
-          "costPerWin": 172.7413869994332,
+          "primary": 0.057970620124191005,
+          "noopRate": 0.9964112653080633,
+          "costPerWin": 469.7624041157898,
           "regressed": false
         },
         "candidateScore": {
-          "primary": 0.10714371161924907,
-          "noopRate": 0.9793054830072517,
-          "costPerWin": 57.78955951281652,
+          "primary": 0.0845760550609925,
+          "noopRate": 0.9911889086584662,
+          "costPerWin": 88.16361436972143,
           "regressed": false
         }
       },
@@ -238,8 +283,8 @@
           "target": "mapping",
           "summary": "mapping: beamHalfAngleDeg 60 -> 45, logOddsHit 0.3 -> 0.6, logOddsMiss 0.1 -> 0.25, occupiedThreshold 0.25 -> 1, freeMarginM 0.02 -> 0.08, snrReferenceDb 40 -> 30"
         },
-        "primaryDelta": 0.08730656843576236,
-        "anchorScore": 0.1741899051957957,
+        "primaryDelta": 0.06794158007688757,
+        "anchorScore": 0.11869717313566586,
         "verdict": "PROMOTED",
         "failureReasons": [],
         "receipt": {
@@ -248,23 +293,23 @@
             "id": "root__mapping_gen1",
             "target": "mapping",
             "verdict": "PROMOTED",
-            "primaryDelta": 0.08730656843576236
+            "primaryDelta": 0.06794158007688757
           },
-          "signature": "v5pDu4zQVnvZxS+OtBrqwZp6/i6nedq8weAm17qznRFdpRCzZin1AM2NwgGOn2cstL/FDHRDVH9PewB4eWnCBA==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "mdBc4o2eWN6yvM7m8zCSEP0XBKEA4w4eTXofwHUiq9na+oRA1jzFrLR78oLHw6bdtTAMtWY9+4+N67FBXz5lDQ==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
         "createdAt": "gen-1",
         "baselineScore": {
-          "primary": 0.056411879563203884,
-          "noopRate": 0.9960332110616271,
-          "costPerWin": 172.7413869994332,
+          "primary": 0.057970620124191005,
+          "noopRate": 0.9964112653080633,
+          "costPerWin": 469.7624041157898,
           "regressed": false
         },
         "candidateScore": {
-          "primary": 0.14371844799896624,
-          "noopRate": 0.9758370936275144,
-          "costPerWin": 35.025228726517796,
+          "primary": 0.12591220020107857,
+          "noopRate": 0.9728867230554288,
+          "costPerWin": 39.81811787520411,
           "regressed": false
         }
       },
@@ -278,7 +323,7 @@
           "target": "waveform",
           "summary": "waveform: f0 19000 -> 18000, f1 20000 -> 20500, durationS 0.004 -> 0.005, txWindow rect -> tukey, tukeyAlpha 0 -> 0.6, amplitude 0.45 -> 0.55"
         },
-        "primaryDelta": -0.03631015268103904,
+        "primaryDelta": -0.0318953772390112,
         "anchorScore": null,
         "verdict": "REJECTED",
         "failureReasons": [
@@ -292,23 +337,23 @@
             "id": "root__mapping_gen1__waveform_gen2",
             "target": "waveform",
             "verdict": "REJECTED",
-            "primaryDelta": -0.03631015268103904
+            "primaryDelta": -0.0318953772390112
           },
-          "signature": "NeJDXW6pJfTJlIClKgl4tNe+mUmQPdEKJM2M0NtEEntmR8s/jNaBvgBMthxvcwkFQral5cJlkKAhabLIOBSVCQ==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "jxYUaJHMWbmdYsLpGPOrFmZM0Ozvzxc/scMs9mweXLzFKODKcYo0li435VQvxyBx+fHcPQ7h3zZjrHWNicwWDQ==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
         "createdAt": "gen-2",
         "baselineScore": {
-          "primary": 0.14371844799896624,
-          "noopRate": 0.9758370936275144,
-          "costPerWin": 35.025228726517796,
+          "primary": 0.12591220020107857,
+          "noopRate": 0.9728867230554288,
+          "costPerWin": 39.81811787520411,
           "regressed": false
         },
         "candidateScore": {
-          "primary": 0.1074082953179272,
-          "noopRate": 0.9798874249518562,
-          "costPerWin": 48.64884831822495,
+          "primary": 0.09401682296206737,
+          "noopRate": 0.9785004235745932,
+          "costPerWin": 53.30287343343825,
           "regressed": false
         }
       },
@@ -322,8 +367,8 @@
           "target": "detector",
           "summary": "detector: cfarGuardMainlobes 1.02 -> 1.5, cfarTrainRatio 1 -> 2, cfarPfa 0.01 -> 0.0001, cfarMergeGapMainlobes 0.25 -> 1, cfarMinProminenceDb 1 -> 6, minSnrDb 2 -> 6"
         },
-        "primaryDelta": 0.09829172106645442,
-        "anchorScore": 0.339771305001739,
+        "primaryDelta": 0.08531383832991479,
+        "anchorScore": 0.26936697257542014,
         "verdict": "PROMOTED",
         "failureReasons": [],
         "receipt": {
@@ -332,23 +377,23 @@
             "id": "root__mapping_gen1__detector_gen2",
             "target": "detector",
             "verdict": "PROMOTED",
-            "primaryDelta": 0.09829172106645442
+            "primaryDelta": 0.08531383832991479
           },
-          "signature": "JVWDlbvQz1hdBMbDE+2NRfF30frSyBAjbiTVApbB8oJFpZ/rGiF8krjKKJrvaf/4W/apty/9NrELKDbal8EaBQ==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "yJEaYUken0iwGuTu+Hage3BCAfbCZB9O1FVgL2ceP7v/EFmmeMtcIV6vJGrpxgF6D/jvrZBKYlrKyBIfYxp0Cg==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
         "createdAt": "gen-2",
         "baselineScore": {
-          "primary": 0.14371844799896624,
-          "noopRate": 0.9758370936275144,
-          "costPerWin": 35.025228726517796,
+          "primary": 0.12591220020107857,
+          "noopRate": 0.9728867230554288,
+          "costPerWin": 39.81811787520411,
           "regressed": false
         },
         "candidateScore": {
-          "primary": 0.24201016906542067,
-          "noopRate": 0.901940576296305,
-          "costPerWin": 14.307671833373693,
+          "primary": 0.21122603853099337,
+          "noopRate": 0.9272841779688157,
+          "costPerWin": 13.225861925355748,
           "regressed": false
         }
       },
@@ -362,7 +407,7 @@
           "target": "mapping",
           "summary": "mapping: beamHalfAngleDeg 45 -> 22, logOddsHit 0.6 -> 0.95, logOddsMiss 0.25 -> 0.5, occupiedThreshold 1 -> 1.8, freeMarginM 0.08 -> 0.18, snrReferenceDb 30 -> 18"
         },
-        "primaryDelta": -0.062196438390070496,
+        "primaryDelta": -0.053504973058485616,
         "anchorScore": null,
         "verdict": "REJECTED",
         "failureReasons": [
@@ -374,23 +419,23 @@
             "id": "root__mapping_gen1__mapping_gen2",
             "target": "mapping",
             "verdict": "REJECTED",
-            "primaryDelta": -0.062196438390070496
+            "primaryDelta": -0.053504973058485616
           },
-          "signature": "yRy6uRQOEMUgnqN+lDB8ocSwyz4gdnTfjV70rwTtzePkq307ir8Eht7BBI/CwiCOay/hFgJNowwxVpky/8qqCA==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "yUlvDNs0WV0JAdWK3boZXQ172jnLRpZS5xxUgQuK/q2VX4WNTwrSDXmaifJu1BLWAoc/e2qMkTkpXyqwC0tFCQ==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
         "createdAt": "gen-2",
         "baselineScore": {
-          "primary": 0.14371844799896624,
-          "noopRate": 0.9758370936275144,
-          "costPerWin": 35.025228726517796,
+          "primary": 0.12591220020107857,
+          "noopRate": 0.9728867230554288,
+          "costPerWin": 39.81811787520411,
           "regressed": false
         },
         "candidateScore": {
-          "primary": 0.08152200960889575,
-          "noopRate": 0.9337278596632836,
-          "costPerWin": 31.67965289788909,
+          "primary": 0.07240722714259296,
+          "noopRate": 0.9046687520801202,
+          "costPerWin": 29.905226239513507,
           "regressed": false
         }
       },
@@ -404,35 +449,33 @@
           "target": "waveform",
           "summary": "waveform: f0 19000 -> 17500, f1 20000 -> 20500, durationS 0.004 -> 0.005, txWindow rect -> hann, tukeyAlpha 0 -> 1, amplitude 0.45 -> 0.6"
         },
-        "primaryDelta": -0.02126753902028944,
-        "anchorScore": null,
-        "verdict": "REJECTED",
-        "failureReasons": [
-          "primary_regressed"
-        ],
+        "primaryDelta": 0.004908405666072785,
+        "anchorScore": 0.2741015172066039,
+        "verdict": "PROMOTED",
+        "failureReasons": [],
         "receipt": {
           "payload": {
             "kind": "candidate",
             "id": "root__mapping_gen1__detector_gen2__waveform_gen3",
             "target": "waveform",
-            "verdict": "REJECTED",
-            "primaryDelta": -0.02126753902028944
+            "verdict": "PROMOTED",
+            "primaryDelta": 0.004908405666072785
           },
-          "signature": "v5fyblNv4Nvt+SCVO+Y8FdUnvscHX6I+Hr995lMEJRBB9zVzSMK5kPbfLUfs/9fzpSrParYD/NMHmxhDLxEfDQ==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "RE3G7RHTzdCp9ZCDDBtZWoatamk9YTopqh2+v5VebL+DJ2O90uAojjRcGIsiNo6b5hk8sSF31RHidkpgKxzDCA==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
         "createdAt": "gen-3",
         "baselineScore": {
-          "primary": 0.24201016906542067,
-          "noopRate": 0.901940576296305,
-          "costPerWin": 14.307671833373693,
+          "primary": 0.21122603853099337,
+          "noopRate": 0.9272841779688157,
+          "costPerWin": 13.225861925355748,
           "regressed": false
         },
         "candidateScore": {
-          "primary": 0.22074263004513123,
-          "noopRate": 0.6092555997581772,
-          "costPerWin": 11.93189147247705,
+          "primary": 0.21613444419706615,
+          "noopRate": 0.666915980199354,
+          "costPerWin": 12.27809405344413,
           "regressed": false
         }
       },
@@ -446,7 +489,7 @@
           "target": "detector",
           "summary": "detector: cfarKind ca -> os, cfarGuardMainlobes 1.5 -> 2.2, cfarPfa 0.0001 -> 0.00001, cfarOsRankFrac 0.75 -> 0.5, cfarMergeGapMainlobes 1 -> 1.2, cfarMinProminenceDb 6 -> 8, minSnrDb 6 -> 8"
         },
-        "primaryDelta": -0.14126136297696226,
+        "primaryDelta": -0.15412029798217317,
         "anchorScore": null,
         "verdict": "REJECTED",
         "failureReasons": [
@@ -459,23 +502,23 @@
             "id": "root__mapping_gen1__detector_gen2__detector_gen3",
             "target": "detector",
             "verdict": "REJECTED",
-            "primaryDelta": -0.14126136297696226
+            "primaryDelta": -0.15412029798217317
           },
-          "signature": "4fYdOSdeNpnEioMpaMXhk1aPOUuGpuxIyEe77zKQ8qtk4962ElA/q16emTHrCKbo9hTZgBxKa4GEXP3Ps0pIBw==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "nxnhpBlrAQLjPWIbJ8dhXnbk6iQQfS0ub+mUd8sK8Ci6y3nwlokLnxMms1Lquc5hjNim1PJM1EpIpa4Zcil+Aw==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
         "createdAt": "gen-3",
         "baselineScore": {
-          "primary": 0.24201016906542067,
-          "noopRate": 0.901940576296305,
-          "costPerWin": 14.307671833373693,
+          "primary": 0.21122603853099337,
+          "noopRate": 0.9272841779688157,
+          "costPerWin": 13.225861925355748,
           "regressed": false
         },
         "candidateScore": {
-          "primary": 0.1007488060884584,
-          "noopRate": 0.41483431884514665,
-          "costPerWin": 80.73695159523353,
+          "primary": 0.05710574054882019,
+          "noopRate": 0.36733130571883077,
+          "costPerWin": 132.99159668554756,
           "regressed": false
         }
       },
@@ -489,7 +532,7 @@
           "target": "mapping",
           "summary": "mapping: beamHalfAngleDeg 45 -> 16, logOddsHit 0.6 -> 1.1, logOddsMiss 0.25 -> 0.6, occupiedThreshold 1 -> 2.2, freeMarginM 0.08 -> 0.2, snrReferenceDb 30 -> 15"
         },
-        "primaryDelta": -0.06875514194965507,
+        "primaryDelta": -0.054229528399832666,
         "anchorScore": null,
         "verdict": "REJECTED",
         "failureReasons": [
@@ -501,79 +544,81 @@
             "id": "root__mapping_gen1__detector_gen2__mapping_gen3",
             "target": "mapping",
             "verdict": "REJECTED",
-            "primaryDelta": -0.06875514194965507
+            "primaryDelta": -0.054229528399832666
           },
-          "signature": "XgzLvwO2xFu0EXWasVqr+r9EUYH2tU/los5lFowP+iqJGzvw3w9HVQhHmJslJe10YyyWGeLUY4jOtPJDLKgEDQ==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "TgGIUa+nt3xPl8rcTt0Dlmn4c94KI8GRB9UwLYKJdfEAtHrDqTzgtxu5ODkmROBw85NNyoF1BkW6gvKzaHORDg==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
         "createdAt": "gen-3",
         "baselineScore": {
-          "primary": 0.24201016906542067,
-          "noopRate": 0.901940576296305,
-          "costPerWin": 14.307671833373693,
+          "primary": 0.21122603853099337,
+          "noopRate": 0.9272841779688157,
+          "costPerWin": 13.225861925355748,
           "regressed": false
         },
         "candidateScore": {
-          "primary": 0.1732550271157656,
-          "noopRate": 0.7295063210056083,
-          "costPerWin": 11.224424655821647,
+          "primary": 0.1569965101311607,
+          "noopRate": 0.6935996337561167,
+          "costPerWin": 13.037370559848878,
           "regressed": false
         }
       },
       {
-        "id": "root__mapping_gen1__detector_gen2__waveform_gen4",
+        "id": "root__mapping_gen1__detector_gen2__waveform_gen3__waveform_gen4",
         "generation": 4,
         "parents": [
-          "root__mapping_gen1__detector_gen2"
+          "root__mapping_gen1__detector_gen2__waveform_gen3"
         ],
         "mutation": {
           "target": "waveform",
-          "summary": "waveform: f0 19000 -> 17500, f1 20000 -> 21500, durationS 0.004 -> 0.006, txWindow rect -> hann, tukeyAlpha 0 -> 1, amplitude 0.45 -> 0.6"
+          "summary": "waveform: f1 20500 -> 21500, durationS 0.005 -> 0.006"
         },
-        "primaryDelta": -0.044467248445324015,
+        "primaryDelta": -0.013774936839297508,
         "anchorScore": null,
         "verdict": "REJECTED",
         "failureReasons": [
-          "primary_regressed"
+          "primary_regressed",
+          "noop_rate_not_improved",
+          "cost_per_win_worsened"
         ],
         "receipt": {
           "payload": {
             "kind": "candidate",
-            "id": "root__mapping_gen1__detector_gen2__waveform_gen4",
+            "id": "root__mapping_gen1__detector_gen2__waveform_gen3__waveform_gen4",
             "target": "waveform",
             "verdict": "REJECTED",
-            "primaryDelta": -0.044467248445324015
+            "primaryDelta": -0.013774936839297508
           },
-          "signature": "nV+Ebl+0YnFqqUvs6I/FHEPqNShZWW9pjsbQIHj/2RdavEWi3FVGdJ9JR4CjlTffJ0/5qngMTbpIlStZRYTTAA==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "kgcTYLxzwLcoYJ7smLYspwOO5NuhR6Veza0IIAEqRTHRHR3+QsO/8t6xgjz3wmGDvqGX7kyoU+yvBJxQvZPvCw==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
         "createdAt": "gen-4",
         "baselineScore": {
-          "primary": 0.24201016906542067,
-          "noopRate": 0.901940576296305,
-          "costPerWin": 14.307671833373693,
+          "primary": 0.21613444419706615,
+          "noopRate": 0.666915980199354,
+          "costPerWin": 12.27809405344413,
           "regressed": false
         },
         "candidateScore": {
-          "primary": 0.19754292062009665,
-          "noopRate": 0.6867613461999567,
-          "costPerWin": 9.891555274424608,
+          "primary": 0.20235950735776864,
+          "noopRate": 0.6787933091080569,
+          "costPerWin": 12.813585717828328,
           "regressed": false
         }
       },
       {
-        "id": "root__mapping_gen1__detector_gen2__detector_gen4",
+        "id": "root__mapping_gen1__detector_gen2__waveform_gen3__detector_gen4",
         "generation": 4,
         "parents": [
-          "root__mapping_gen1__detector_gen2"
+          "root__mapping_gen1__detector_gen2__waveform_gen3"
         ],
         "mutation": {
           "target": "detector",
           "summary": "detector: cfarKind ca -> os, cfarGuardMainlobes 1.5 -> 2.2, cfarPfa 0.0001 -> 0.00001, cfarOsRankFrac 0.75 -> 0.5, cfarMergeGapMainlobes 1 -> 1.2, cfarMinProminenceDb 6 -> 8, minSnrDb 6 -> 8"
         },
-        "primaryDelta": -0.14126136297696226,
+        "primaryDelta": -0.0011248145491830341,
         "anchorScore": null,
         "verdict": "REJECTED",
         "failureReasons": [
@@ -583,124 +628,40 @@
         "receipt": {
           "payload": {
             "kind": "candidate",
-            "id": "root__mapping_gen1__detector_gen2__detector_gen4",
+            "id": "root__mapping_gen1__detector_gen2__waveform_gen3__detector_gen4",
             "target": "detector",
             "verdict": "REJECTED",
-            "primaryDelta": -0.14126136297696226
+            "primaryDelta": -0.0011248145491830341
           },
-          "signature": "Gcr7nOCuXiHp7ZTm/rNm5uDkDoysi6KY8NS/m9Q/+zqZ2uk15KZrwAFIt4Kjg+bfGxmz1GxnqNEVtSZvcCiKDg==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "r7o5EVD8sfyIWwqUcNPepXf4r6gVSbooQdSDNX1fPWnMXPdulOpaqYOI5Hq0A3Mvr+gdDnz8/uBI4Tx8i4o6CA==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
         "createdAt": "gen-4",
         "baselineScore": {
-          "primary": 0.24201016906542067,
-          "noopRate": 0.901940576296305,
-          "costPerWin": 14.307671833373693,
+          "primary": 0.21613444419706615,
+          "noopRate": 0.666915980199354,
+          "costPerWin": 12.27809405344413,
           "regressed": false
         },
         "candidateScore": {
-          "primary": 0.1007488060884584,
-          "noopRate": 0.41483431884514665,
-          "costPerWin": 80.73695159523353,
+          "primary": 0.21500962964788312,
+          "noopRate": 0.5247614637683414,
+          "costPerWin": 21.97301406259148,
           "regressed": false
         }
       },
       {
-        "id": "root__mapping_gen1__detector_gen2__mapping_gen4",
+        "id": "root__mapping_gen1__detector_gen2__waveform_gen3__mapping_gen4",
         "generation": 4,
         "parents": [
-          "root__mapping_gen1__detector_gen2"
+          "root__mapping_gen1__detector_gen2__waveform_gen3"
         ],
         "mutation": {
           "target": "mapping",
           "summary": "mapping: beamHalfAngleDeg 45 -> 16, logOddsHit 0.6 -> 1.1, logOddsMiss 0.25 -> 0.6, occupiedThreshold 1 -> 2.2, freeMarginM 0.08 -> 0.2, snrReferenceDb 30 -> 15"
         },
-        "primaryDelta": -0.06875514194965507,
-        "anchorScore": null,
-        "verdict": "REJECTED",
-        "failureReasons": [
-          "primary_regressed"
-        ],
-        "receipt": {
-          "payload": {
-            "kind": "candidate",
-            "id": "root__mapping_gen1__detector_gen2__mapping_gen4",
-            "target": "mapping",
-            "verdict": "REJECTED",
-            "primaryDelta": -0.06875514194965507
-          },
-          "signature": "1EUu5ISLOvo9b9NudOeaTspKID6DT4QD3mVcr1BWIP4AhLijedL0XgqYqmvaTXt7DBpuhH+PDBz0eu+iO+/cDw==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
-          "alg": "ed25519"
-        },
-        "createdAt": "gen-4",
-        "baselineScore": {
-          "primary": 0.24201016906542067,
-          "noopRate": 0.901940576296305,
-          "costPerWin": 14.307671833373693,
-          "regressed": false
-        },
-        "candidateScore": {
-          "primary": 0.1732550271157656,
-          "noopRate": 0.7295063210056083,
-          "costPerWin": 11.224424655821647,
-          "regressed": false
-        }
-      },
-      {
-        "id": "root__mapping_gen1__detector_gen2__waveform_gen5",
-        "generation": 5,
-        "parents": [
-          "root__mapping_gen1__detector_gen2"
-        ],
-        "mutation": {
-          "target": "waveform",
-          "summary": "waveform: f0 19000 -> 17500, f1 20000 -> 21500, durationS 0.004 -> 0.006, txWindow rect -> hann, tukeyAlpha 0 -> 1, amplitude 0.45 -> 0.6"
-        },
-        "primaryDelta": -0.044467248445324015,
-        "anchorScore": null,
-        "verdict": "REJECTED",
-        "failureReasons": [
-          "primary_regressed"
-        ],
-        "receipt": {
-          "payload": {
-            "kind": "candidate",
-            "id": "root__mapping_gen1__detector_gen2__waveform_gen5",
-            "target": "waveform",
-            "verdict": "REJECTED",
-            "primaryDelta": -0.044467248445324015
-          },
-          "signature": "rp11eRv2uzXLUBr31RszO5BKgx9j7ZmoYHe9rlgQ/WmaQ4PCa90ieMCTv0uLlAvr9boELxVHGE1Bx5rHIuC+AA==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
-          "alg": "ed25519"
-        },
-        "createdAt": "gen-5",
-        "baselineScore": {
-          "primary": 0.24201016906542067,
-          "noopRate": 0.901940576296305,
-          "costPerWin": 14.307671833373693,
-          "regressed": false
-        },
-        "candidateScore": {
-          "primary": 0.19754292062009665,
-          "noopRate": 0.6867613461999567,
-          "costPerWin": 9.891555274424608,
-          "regressed": false
-        }
-      },
-      {
-        "id": "root__mapping_gen1__detector_gen2__detector_gen5",
-        "generation": 5,
-        "parents": [
-          "root__mapping_gen1__detector_gen2"
-        ],
-        "mutation": {
-          "target": "detector",
-          "summary": "detector: cfarKind ca -> os, cfarGuardMainlobes 1.5 -> 2.2, cfarPfa 0.0001 -> 0.00001, cfarOsRankFrac 0.75 -> 0.5, cfarMergeGapMainlobes 1 -> 1.2, cfarMinProminenceDb 6 -> 8, minSnrDb 6 -> 8"
-        },
-        "primaryDelta": -0.14126136297696226,
+        "primaryDelta": -0.06479375758104089,
         "anchorScore": null,
         "verdict": "REJECTED",
         "failureReasons": [
@@ -710,68 +671,156 @@
         "receipt": {
           "payload": {
             "kind": "candidate",
-            "id": "root__mapping_gen1__detector_gen2__detector_gen5",
-            "target": "detector",
+            "id": "root__mapping_gen1__detector_gen2__waveform_gen3__mapping_gen4",
+            "target": "mapping",
             "verdict": "REJECTED",
-            "primaryDelta": -0.14126136297696226
+            "primaryDelta": -0.06479375758104089
           },
-          "signature": "34c/R0sbsjQPZbwbbUP8EUZgO4efqVbPuTqlDoIzkMLxliQahAuc0C9fkPDne1zW5vuLBilBA8KMB5FyvTVMBA==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "ONfEvIkVA0stqil/JXfkg3BCXx6bY1VonhbQJx/lV0BI8lh2IndRbofM//eiLhioXEXi1cAeNXOpWQLo1uJUBQ==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
-        "createdAt": "gen-5",
+        "createdAt": "gen-4",
         "baselineScore": {
-          "primary": 0.24201016906542067,
-          "noopRate": 0.901940576296305,
-          "costPerWin": 14.307671833373693,
+          "primary": 0.21613444419706615,
+          "noopRate": 0.666915980199354,
+          "costPerWin": 12.27809405344413,
           "regressed": false
         },
         "candidateScore": {
-          "primary": 0.1007488060884584,
-          "noopRate": 0.41483431884514665,
-          "costPerWin": 80.73695159523353,
+          "primary": 0.15134068661602526,
+          "noopRate": 0.6282734609366402,
+          "costPerWin": 13.944606778351366,
           "regressed": false
         }
       },
       {
-        "id": "root__mapping_gen1__detector_gen2__mapping_gen5",
+        "id": "root__mapping_gen1__detector_gen2__waveform_gen3__waveform_gen5",
         "generation": 5,
         "parents": [
-          "root__mapping_gen1__detector_gen2"
+          "root__mapping_gen1__detector_gen2__waveform_gen3"
+        ],
+        "mutation": {
+          "target": "waveform",
+          "summary": "waveform: f1 20500 -> 21500, durationS 0.005 -> 0.006"
+        },
+        "primaryDelta": -0.013774936839297508,
+        "anchorScore": null,
+        "verdict": "REJECTED",
+        "failureReasons": [
+          "primary_regressed",
+          "noop_rate_not_improved",
+          "cost_per_win_worsened"
+        ],
+        "receipt": {
+          "payload": {
+            "kind": "candidate",
+            "id": "root__mapping_gen1__detector_gen2__waveform_gen3__waveform_gen5",
+            "target": "waveform",
+            "verdict": "REJECTED",
+            "primaryDelta": -0.013774936839297508
+          },
+          "signature": "yOBCifClkYR1hMiwxGRSMWp6Y6XUhjT+U31JPV6xCwsCwDL6Gd+UbnW3RdSF1IhY1j0kNuB70Ppd1/yfKrRaBw==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
+          "alg": "ed25519"
+        },
+        "createdAt": "gen-5",
+        "baselineScore": {
+          "primary": 0.21613444419706615,
+          "noopRate": 0.666915980199354,
+          "costPerWin": 12.27809405344413,
+          "regressed": false
+        },
+        "candidateScore": {
+          "primary": 0.20235950735776864,
+          "noopRate": 0.6787933091080569,
+          "costPerWin": 12.813585717828328,
+          "regressed": false
+        }
+      },
+      {
+        "id": "root__mapping_gen1__detector_gen2__waveform_gen3__detector_gen5",
+        "generation": 5,
+        "parents": [
+          "root__mapping_gen1__detector_gen2__waveform_gen3"
+        ],
+        "mutation": {
+          "target": "detector",
+          "summary": "detector: cfarKind ca -> os, cfarGuardMainlobes 1.5 -> 2.2, cfarPfa 0.0001 -> 0.00001, cfarOsRankFrac 0.75 -> 0.5, cfarMergeGapMainlobes 1 -> 1.2, cfarMinProminenceDb 6 -> 8, minSnrDb 6 -> 8"
+        },
+        "primaryDelta": -0.0011248145491830341,
+        "anchorScore": null,
+        "verdict": "REJECTED",
+        "failureReasons": [
+          "primary_regressed",
+          "cost_per_win_worsened"
+        ],
+        "receipt": {
+          "payload": {
+            "kind": "candidate",
+            "id": "root__mapping_gen1__detector_gen2__waveform_gen3__detector_gen5",
+            "target": "detector",
+            "verdict": "REJECTED",
+            "primaryDelta": -0.0011248145491830341
+          },
+          "signature": "gswBh9Rrjxxq5bk+As2oRRf00XRek/29tIEXHNxaapeIkcKXIhnEsVLc3IYfPWhObvhu8VcPVFkjtZwQrbroCw==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
+          "alg": "ed25519"
+        },
+        "createdAt": "gen-5",
+        "baselineScore": {
+          "primary": 0.21613444419706615,
+          "noopRate": 0.666915980199354,
+          "costPerWin": 12.27809405344413,
+          "regressed": false
+        },
+        "candidateScore": {
+          "primary": 0.21500962964788312,
+          "noopRate": 0.5247614637683414,
+          "costPerWin": 21.97301406259148,
+          "regressed": false
+        }
+      },
+      {
+        "id": "root__mapping_gen1__detector_gen2__waveform_gen3__mapping_gen5",
+        "generation": 5,
+        "parents": [
+          "root__mapping_gen1__detector_gen2__waveform_gen3"
         ],
         "mutation": {
           "target": "mapping",
           "summary": "mapping: beamHalfAngleDeg 45 -> 16, logOddsHit 0.6 -> 1.1, logOddsMiss 0.25 -> 0.6, occupiedThreshold 1 -> 2.2, freeMarginM 0.08 -> 0.2, snrReferenceDb 30 -> 15"
         },
-        "primaryDelta": -0.06875514194965507,
+        "primaryDelta": -0.06479375758104089,
         "anchorScore": null,
         "verdict": "REJECTED",
         "failureReasons": [
-          "primary_regressed"
+          "primary_regressed",
+          "cost_per_win_worsened"
         ],
         "receipt": {
           "payload": {
             "kind": "candidate",
-            "id": "root__mapping_gen1__detector_gen2__mapping_gen5",
+            "id": "root__mapping_gen1__detector_gen2__waveform_gen3__mapping_gen5",
             "target": "mapping",
             "verdict": "REJECTED",
-            "primaryDelta": -0.06875514194965507
+            "primaryDelta": -0.06479375758104089
           },
-          "signature": "fzP+Qr9q6SuHYXQku6iIIt2/v5AreL6NcBxD9OtslIVoDfwQgN8vG5r0Eu7zeq5PRxDtw6o1d0Sdl2fnCB78Bg==",
-          "publicKey": "MCowBQYDK2VwAyEALimtgLArTWNCAUNzEnH27YkjGSH5UF5v3nDEQBAcaQc=",
+          "signature": "bKMhd1KMtNB5aaBUmJ9k3l3pdK/6r7N1N47nqF2wrnRpxuaSLXVRbB17FfmQ7FrKQpxW9Z2D0ujwymnqg3rnAQ==",
+          "publicKey": "MCowBQYDK2VwAyEARSYcHIKnzLCqyuHZ5CIz3NnFhADDd0H4EydbXuIDUiw=",
           "alg": "ed25519"
         },
         "createdAt": "gen-5",
         "baselineScore": {
-          "primary": 0.24201016906542067,
-          "noopRate": 0.901940576296305,
-          "costPerWin": 14.307671833373693,
+          "primary": 0.21613444419706615,
+          "noopRate": 0.666915980199354,
+          "costPerWin": 12.27809405344413,
           "regressed": false
         },
         "candidateScore": {
-          "primary": 0.1732550271157656,
-          "noopRate": 0.7295063210056083,
-          "costPerWin": 11.224424655821647,
+          "primary": 0.15134068661602526,
+          "noopRate": 0.6282734609366402,
+          "costPerWin": 13.944606778351366,
           "regressed": false
         }
       }
@@ -779,26 +828,32 @@
     "lift_curve": [
       {
         "generation": 0,
-        "primary": 0.056411879563203884,
+        "primary": 0.057970620124191005,
         "delta": 0,
-        "anchor": 0.05219939062129532
+        "anchor": 0.09388823546115463
       },
       {
         "generation": 1,
-        "primary": 0.14371844799896624,
-        "delta": 0.08730656843576236,
-        "anchor": 0.1741899051957957
+        "primary": 0.12591220020107857,
+        "delta": 0.06794158007688757,
+        "anchor": 0.11869717313566586
       },
       {
         "generation": 2,
-        "primary": 0.24201016906542067,
-        "delta": 0.09829172106645442,
-        "anchor": 0.339771305001739
+        "primary": 0.21122603853099337,
+        "delta": 0.08531383832991479,
+        "anchor": 0.26936697257542014
+      },
+      {
+        "generation": 3,
+        "primary": 0.21613444419706615,
+        "delta": 0.004908405666072785,
+        "anchor": 0.2741015172066039
       }
     ],
     "gate_fingerprint": "b730019b67f5c0dd1aacb8674ce46933be9ff91c499eea87875fff3d0372e36d",
-    "verified_improvements": 2,
-    "anchor_surviving_improvements": 2,
+    "verified_improvements": 3,
+    "anchor_surviving_improvements": 3,
     "milestone_reached": true,
     "created_at": "gen-5"
   }

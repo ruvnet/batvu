@@ -27,6 +27,7 @@ what evidence overturned it — those are usually the useful part.
 | [019](ADR-019-room-memory.md) | Recognise a place instead of localising in one |
 | [020](ADR-020-guard-at-the-transmitter.md) | The emission guard belongs at the speaker, not at the config |
 | [021](ADR-021-which-blast.md) | Which blast — time from the most recent one, not the loudest |
+| [022](ADR-022-near-field-dynamic-range.md) | The blast pays for its own short path |
 
 ## The ones that changed during the build
 
@@ -42,6 +43,7 @@ records worth reading first, because in each case the first version looked right
 | [014](ADR-014-flywheel.md) | `noopRate` = fraction of silent pings | It saturates at exactly 0, and the flywheel's strict promotion clause then freezes forever |
 | [019](ADR-019-room-memory.md) | The descriptor carried an elevation-mass block, and justified its invariance by bounding a phase error | `\|F_e[0]\|` *is* the band's mass, so eight of 128 dimensions were a copy — and the retained quantity is a magnitude, so the phase bound was about something the descriptor discards |
 | [020](ADR-020-guard-at-the-transmitter.md) | The emission guard was assumed to be on the transmit path | It was called in exactly one place: the flywheel's simulated scorer. `AudioSession.start()` played whatever it was handed |
+| [022](ADR-022-near-field-dynamic-range.md) | The direct-path blast was a bare constant while every echo paid spreading and absorption | It arrived 11.4 dB above a wall at 2.4 m where the physics says 38.3 — and the module's own docstring had said "tens of dB" all along |
 | [021](ADR-021-which-blast.md) | Time from the loudest arrival in the search span | On a continuous capture that span holds ~4 identical blasts, so noise chose between them — and the pose tag, not the range, is what it corrupted |
 
 ## Relationship to the research dossier
